@@ -37,7 +37,7 @@ impl Jzon {
             '"' => Jzon::parseString(bytes),
             '{' => Jzon::parseObject(bytes),
             '[' => Jzon::parseArray(bytes),
-            _ => Result::Err(ParseErr::new()),
+            _ => Err(ParseErr::new()),
         }
     }
 
@@ -55,32 +55,32 @@ impl Jzon {
 
     #[allow(non_snake_case)]
     fn parseArray(bytes: &[u8]) -> Result<Jzon, ParseErr> {
-        Result::Err(ParseErr::new())
+        Err(ParseErr::new())
     }
 
     #[allow(non_snake_case)]
     fn parseTrue(bytes: &[u8]) -> Result<Jzon, ParseErr> {
-        Result::Err(ParseErr::new())
+        Err(ParseErr::new())
     }
 
     #[allow(non_snake_case)]
     fn parseFalse(bytes: &[u8]) -> Result<Jzon, ParseErr> {
-        Result::Err(ParseErr::new())
+        Err(ParseErr::new())
     }
 
     #[allow(non_snake_case)]
     fn parseNull(bytes: &[u8]) -> Result<Jzon, ParseErr> {
-        Result::Err(ParseErr::new())
+        Err(ParseErr::new())
     }
 
     #[allow(non_snake_case)]
     fn parseNumber(bytes: &[u8]) -> Result<Jzon, ParseErr> {
-        Result::Err(ParseErr::new())
+        Err(ParseErr::new())
     }
 
     #[allow(non_snake_case)]
     fn parseString(bytes: &[u8]) -> Result<Jzon, ParseErr> {
-        Result::Err(ParseErr::new())
+        Err(ParseErr::new())
     }
 
     #[allow(non_snake_case)]
@@ -88,21 +88,31 @@ impl Jzon {
         let mut s = String::new();
         let remain_bytes = &bytes[1..];
         loop {
-            match remain_bytes[0] as char {
-                '\\' => {
-                    let _ = match remain_bytes[1] as char {
-                        'b' => s.push(08 as char),
-                        't' => s.push('\t'),
-                        'n' => s.push('\n'),
-                        'r' => s.push('\r'),
-                        '"' => s.push('\"'),
-                        '/' => s.push('/'),
-                        '\\' => s.push('\\'),
-                        _ => return Result::Err(ParseErr::new()),
-                    };
-                }
-                _ => {}
-            }
+            s.push(match remain_bytes[0] as char {
+                '\\' => Jzon::parseEscapedChar(&bytes[1..]).unwrap(),
+                ch   => ch
+            });
         }
     }
+
+    #[allow(non_snake_case)]
+    fn parseEscapedChar(bytes: &[u8]) -> Result<char, ParseErr> {
+        Ok(match bytes[1] as char {
+            'b'  => 08 as char,
+            't'  => '\t',
+            'n'  => '\n',
+            'r'  => '\r',
+            '"'  => '\"',
+            '/'  => '/',
+            '\\' => '\\',
+            'u'  => Jzon::parseUnicodePoint(&bytes[1..]).unwrap(),
+            _    => return Err(ParseErr::new()), // the `return` expression is type of `!` which is the subtype of all other types
+        })
+    }
+
+    #[allow(non_snake_case)]
+    fn parseUnicodePoint(bytes: &[u8]) -> Result<char, ParseErr> {
+        Err(ParseErr::new())
+    }
 }
+
