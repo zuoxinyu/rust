@@ -1,5 +1,6 @@
-use std::string::String;
 #[allow(dead_code)]
+use std::mem;
+use std::string::String;
 use std::vec::Vec;
 
 #[derive(Debug)]
@@ -18,19 +19,26 @@ pub enum ParseErr {
     ParseError(String),
 }
 
+trait JSON<T> {
+    fn into_json(self) -> Vec<u8>;
+    fn from_json(json: &[u8]) -> Result<T, ParseErr>;
+}
+
 impl ParseErr {
     pub fn new() -> ParseErr {
         ParseErr::ParseError(String::from("parse error"))
     }
 }
 
+pub type ParseResult<T> = Result<T, ParseErr>;
+
 impl Jzon {
-    pub fn parse(bytes: &[u8]) -> Result<Jzon, ParseErr> {
+    pub fn parse(bytes: &[u8]) -> ParseResult<Jzon> {
         match bytes[0] as char {
-            ' ' | '\t' | '\r' | '\n' => Jzon::parse(&bytes[1..]),
-            '-' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | '0' => {
-                Jzon::parseNumber(bytes)
-            }
+            ' ' | '\t' | '\r' | '\n'
+                => Jzon::parse(&bytes[1..]),
+            '-' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | '0'
+                => Jzon::parseNumber(bytes),
             't' => Jzon::parseTrue(bytes),
             'f' => Jzon::parseFalse(bytes),
             'n' => Jzon::parseNull(bytes),
@@ -89,7 +97,7 @@ impl Jzon {
         let remain_bytes = &bytes[1..];
         loop {
             s.push(match remain_bytes[0] as char {
-                '\\' => Jzon::parseEscapedChar(&bytes[1..]).unwrap(),
+                '\\' => Jzon::parseEscapedChar(&bytes[1..])?,
                 ch   => ch
             });
         }
@@ -105,13 +113,18 @@ impl Jzon {
             '"'  => '\"',
             '/'  => '/',
             '\\' => '\\',
-            'u'  => Jzon::parseUnicodePoint(&bytes[1..]).unwrap(),
+            'u'  => Jzon::parseUnicodePoint(&bytes[1..])?,
             _    => return Err(ParseErr::new()), // the `return` expression is type of `!` which is the subtype of all other types
         })
     }
 
     #[allow(non_snake_case)]
     fn parseUnicodePoint(bytes: &[u8]) -> Result<char, ParseErr> {
+        Err(ParseErr::new())
+    }
+
+    #[allow(non_snake_case)]
+    fn parseHex4(bytes: &[u8]) -> Result<char, ParseErr> {
         Err(ParseErr::new())
     }
 }
