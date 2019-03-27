@@ -1,5 +1,8 @@
 fn main() {
     variable_and_mutability();
+    let _ = lifetime(&2, &3);
+    ownership();
+    lexical_scope_and_lifetime();
 }
 
 #[derive(Debug)]
@@ -92,4 +95,24 @@ fn variable_and_mutability() {
 
 fn lifetime<'a>(i :&'a i32, _j :&i32) -> &'a i32 {
     i
+}
+
+fn ownership() {
+    let mut x = Box::new(1); // x owns the mem
+    {
+        let ref mut mut_ref_x = x;
+        //*x = 3;
+        **mut_ref_x = 4;
+    }
+    println!("x is {}", *x);
+}
+
+fn lexical_scope_and_lifetime() {
+    let s = "hello".to_string();
+    {
+        s; // move occurs here
+    }
+    // println!("{}", s);
+    
+    let y:String = "hello".to_string();
 }

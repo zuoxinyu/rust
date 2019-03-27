@@ -1,7 +1,9 @@
 [package]
 name = "jzon"
 version = "0.1.0"
-authors = ["duleilei <duleilei@360.net>"]
+authors = ["zuoxinyu<iamzuoxinyu@gmail.com>"]
 edition = "2018"
 
 [dependencies]
+
+[features]

@@ -1,3 +1,4 @@
+#![feature(try_trait)]
 #[allow(dead_code)]
 mod jzon;
 #[derive(Debug)]
