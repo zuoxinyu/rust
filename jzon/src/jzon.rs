@@ -5,26 +5,6 @@ use std::vec::Vec;
 use std::mem;
 use std::collections::HashMap;
 
-trait HKT {
-    type TypeA;
-}
-
-trait Rebind<T> {
-    type TypeB;
-}
-
-trait Functor: HKT {
-    fn fmap<Y, F:Fn(Self::TypeA) -> Y>(self, f: F) -> Self::TypeB where Self: Rebind<Y>;
-}
-
-trait Monad: Functor {
-    // a -> M a
-    fn unit(value: Self::TypeA) -> Self;
-    // M a -> (a -> M b) -> M b
-    fn bind<U, F: Fn(Self::TypeA) -> Self::TypeB>(self, f: F) -> Self::TypeB where Self: Rebind<U>;
-    //fn join<U>(self) -> Self::TypeA where Self::TypeA: Equals<Self::TypeB>, Self: Rebind<U> + Sized;
-}
-
 #[derive(Debug)]
 pub enum Jzon {
     Object(HashMap<String, Jzon>),
@@ -40,11 +20,6 @@ pub enum Jzon {
 pub enum ParseErr {
     ParseError(String),
     Expect(String),
-}
-
-trait JSON<T> {
-    fn into_json(self) -> Vec<u8>;
-    fn from_json(json: &[u8]) -> Result<T, ParseErr>;
 }
 
 struct Position {
@@ -117,23 +92,52 @@ impl Jzon {
     }
 
     fn parsePair(bytes: &[u8]) -> ParseResult<(String, Jzon)> {
-        match bytes[0] as char {
-            '"' => match Jzon::parseStringLiteral(bytes) {
-                    Ok(State{value: k, consumed: nk, pos: pos}) => {
-                        if let Ok(State{value, consumed: nv, pos: pos}) = Jzon::parse(&bytes[nk..]) {
-                            return Ok(State{value: (k, value), consumed: nk+nv, pos});
-                        } else {
-                            return Err(ParseErr::expect("value"));
-                        }
-                    },
-                    Err(e) => return Err(e),
-                }
-            _ => return Err(ParseErr::expect("\""))
+        if bytes[0] as char == '"' {
+            match Jzon::parseStringLiteral(bytes) {
+                Ok(State{value: k, consumed: nk, pos: pos}) => {
+                    if bytes[nk] as char != ':' {
+                        return Err(ParseErr::expect(":"))
+                    }
+
+                    if let Ok(State{value, consumed: nv, pos: pos}) = Jzon::parse(&bytes[nk+1..]) {
+                        return Ok(State{value: (k, value), consumed: nk+1+nv, pos});
+                    } else {
+                        return Err(ParseErr::expect("value"));
+                    }
+                },
+                Err(e) => return Err(e),
+            }
+        } else {
+            Err(ParseErr::expect("\""))
         }
     }
 
     fn parseArray(bytes: &[u8]) -> ParseResult<Jzon> {
-        unimplemented!()
+        let mut state = State{
+            value: Jzon::Array(Vec::new()),
+            consumed: 0,
+            pos: Position{line: 0, column: 0}
+        };
+
+        let Jzon::Array(ref mut vec) = state.value;
+        loop {
+            match Jzon::parse(&bytes[(1+state.consumed)..]) {
+                Ok(State{value: v, consumed: n, pos: pos}) => {
+                    vec.push(v);
+                    state.consumed += n;
+                },
+                Err(e) => return Err(e)
+            }
+
+            match bytes[1+state.consumed] as char {
+                ',' => continue,
+                ']' => break,
+                ' ' | '\t' | '\n' | '\r' => continue,
+                _    => return Err(ParseErr::expect(",}"))
+            }
+        }
+
+        Ok(state)
     }
 
     fn parseTrue(bytes: &[u8]) -> ParseResult<Jzon> {
@@ -156,7 +160,6 @@ impl Jzon {
         Err(ParseErr::new())
     }
 
-    #[allow(non_snake_case)]
     fn parseStringLiteral(bytes: &[u8]) -> ParseResult<String> {
         let mut s = String::new();
         let remain_bytes = &bytes[1..];
@@ -171,10 +174,9 @@ impl Jzon {
         }
     }
 
-    #[allow(non_snake_case)]
     fn parseEscapedChar(bytes: &[u8]) -> ParseResult<char> {
         Ok(match bytes[1] as char {
-            'b' => 08 as char,
+            'b' => 8 as char,
             't' => '\t',
             'n' => '\n',
             'r' => '\r',
@@ -186,10 +188,9 @@ impl Jzon {
         })
     }
 
-    #[allow(non_snake_case)]
     fn parseUnicodePoint(bytes: &[u8]) -> ParseResult<char> {
         fn invalid(cp: u32) -> bool { 0xDC00 <= cp && cp <= 0xDFFF || cp == 0 }
-        let mut uc = Jzon::parseHex4(&bytes[0..4])?;
+        let State{value: uc, consumed: n, pos: pos} = Jzon::parseHex4(&bytes[0..4])?;
         if invalid(uc) {
             return Err(ParseErr::expect("invalid codepoint"));
         }
@@ -199,7 +200,7 @@ impl Jzon {
                 return Err(ParseErr::expect("need succeed codepoint"));
             }
 
-            let uc2 = Jzon::parseHex4(&bytes[6..10])?;
+            let State{value: uc2, consumed: n, pos: pos} = Jzon::parseHex4(&bytes[6..10])?;
             if invalid(uc2) {
                 return Err(ParseErr::expect("invalid codepoint"));
             }
@@ -220,16 +221,6 @@ impl Jzon {
         }
         parsed[0] = (uc | firstByteMarkMap[len]) as u8;
 
-        /*
-        match len {
-            4 => {parsed[3] = (uc | 0x80) & 0xBF; uc >>= 6;},
-            3 => {parsed[2] = (uc | 0x80) & 0xBF; uc >>= 6;},
-            2 => {parsed[1] = (uc | 0x80) & 0xBF; uc >>= 6;},
-            1 => {parsed[0] = (uc | firstByteMarkMap[len]);},
-            _ => (),
-        };
-        */
-
         let mut realParsed : [u8;4] = [0,0,0,0];
         for (i, c) in parsed.iter().enumerate() {
             if (*c) != 0u8 {
@@ -245,7 +236,6 @@ impl Jzon {
         return Err(ParseErr::expect(""));
     }
 
-    #[allow(non_snake_case)]
     fn parseHex4(bytes: &[u8]) -> ParseResult<u32> {
         bytes[0..4].iter().enumerate().fold(
             Ok(0u32),
@@ -260,7 +250,7 @@ impl Jzon {
 }
 
 mod tests {
-    use super::*;
+    use super::Jzon;
     #[test]
     fn test_parse_hex() {
         let bytes: [u8; 4] = [b'4', b'e', b'2', b'd'];
