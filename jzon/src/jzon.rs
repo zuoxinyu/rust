@@ -175,7 +175,7 @@ impl Jzon {
     }
 
     fn parseEscapedChar(bytes: &[u8]) -> ParseResult<char> {
-        Ok(match bytes[1] as char {
+        let ch = match bytes[1] as char {
             'b' => 8 as char,
             't' => '\t',
             'n' => '\n',
@@ -183,9 +183,11 @@ impl Jzon {
             '"' => '\"',
             '/' => '/',
             '\\' => '\\',
-            'u' => Jzon::parseUnicodePoint(&bytes[1..])?,
+            'u' => return Jzon::parseUnicodePoint(&bytes[1..]),
             _ => return Err(ParseErr::new()),
-        })
+        };
+
+        Ok(State{value: ch, consumed: 2, pos: Position{line: 0, column: 0}})
     }
 
     fn parseUnicodePoint(bytes: &[u8]) -> ParseResult<char> {
@@ -237,24 +239,15 @@ impl Jzon {
     }
 
     fn parseHex4(bytes: &[u8]) -> ParseResult<u32> {
-        bytes[0..4].iter().enumerate().fold(
-            Ok(0u32),
+        let hex = bytes[0..4].iter().enumerate().fold(
+            0u32,
             |init, (i, ch)| {
                 (*ch as char)
                     .to_digit(16)
                     .ok_or(ParseErr::expect("invalid hex digit character"))
-                    .map(|res| init.unwrap() + res * (0x1000u32 >> (i * 4)))
+                    .map(|res| init + res * (0x1000u32 >> (i * 4)))
             },
-        )
+        );
     }
 }
 
-mod tests {
-    use super::Jzon;
-    #[test]
-    fn test_parse_hex() {
-        let bytes: [u8; 4] = [b'4', b'e', b'2', b'd'];
-        let res = Jzon::parseHex4(&bytes);
-        assert_eq!(0x4e2d, res.unwrap());
-    }
-}
