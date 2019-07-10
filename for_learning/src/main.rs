@@ -22,6 +22,11 @@ fn variable_and_mutability() {
     // const_i = 2; // illegal, change an immutable variable
     println!("&const_i is {:p}", (&const_i) as * const i32); 
 
+    let const_str_ref = "string";
+    println!("const_str_ref is {:p}", const_str_ref);
+    let const_str_ref_cp = const_str_ref;
+    println!("const_str_ref_cp is {:p}", const_str_ref_cp);
+
     let mut mut_i = 3; // int j = 3;
     println!("&mut_i is {:p}", (&mut_i) as * const i32); 
     mut_i = 4;
