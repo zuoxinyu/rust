@@ -3,8 +3,8 @@
 use std::string::String;
 use std::vec::Vec;
 use std::collections::HashMap;
-use std::char;
 use std::mem;
+use std::char;
 
 #[derive(Debug)]
 pub enum Jzon {
@@ -182,7 +182,7 @@ impl Jzon {
 
     fn parseUnicodePoint(bytes: &[u8]) -> ParseResult<char> {
         fn invalid(cp: u32) -> bool { 0xDC00 <= cp && cp <= 0xDFFF || cp == 0 }
-        let mut uc = Jzon::parseHex4(&bytes[0..4]);
+        let Ok(State{value: uc, consumed}) = Jzon::parseHex4(&bytes[0..4]);
         if invalid(uc) {
             return Err(ParseErr::expect("invalid codepoint"));
         }
@@ -192,7 +192,7 @@ impl Jzon {
                 return Err(ParseErr::expect("need succeed codepoint"));
             }
 
-            let uc2 = Jzon::parseHex4(&bytes[6..10]);
+            let Ok(State{value: uc2, consumed}) = Jzon::parseHex4(&bytes[6..10]);
             if invalid(uc2) {
                 return Err(ParseErr::expect("invalid codepoint"));
             }
@@ -231,9 +231,17 @@ impl Jzon {
 
     }
 
-    fn parseHex4(bytes: &[u8]) -> u32 {
-        //let hex = bytes[0..4].iter().enumerate().fold(0, |init, (i, ch)| { ((*ch) as char).to_digit(16).map(|res| init + res * (0x1000u32 >> (i * 4))) });
-        unimplemented!()
+    // (>>=) m a -> (a -> m b) -> m b
+    fn parseHex4(bytes: &[u8]) -> ParseResult<u32> {
+        if let Some(hex) = bytes[0..4].iter().enumerate().fold(
+            Some(0u32), 
+            |init, (i, ch)| (*ch as char).to_digit(16).and_then(|d| init.and_then(|x| Some(x + d * (0x1000u32 >> (i * 4))))))
+        {
+            Ok(State{value: hex, consumed: 4})
+        } else {
+            Err(ParseErr::expect("hex digit"))
+
+        }
     }
 }
 
