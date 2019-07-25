@@ -156,7 +156,7 @@ impl Jzon {
         loop {
             s.push(match remain_bytes[0] as char {
                 '\\' => {
-                    let State{value, consumed} = Jzon::parseEscapedChar(&bytes[1..])?;
+                    let State{value, consumed: _} = Jzon::parseEscapedChar(&bytes[1..])?;
                     value
                 },
                 ch => ch,
@@ -182,7 +182,9 @@ impl Jzon {
 
     fn parseUnicodePoint(bytes: &[u8]) -> ParseResult<char> {
         fn invalid(cp: u32) -> bool { 0xDC00 <= cp && cp <= 0xDFFF || cp == 0 }
-        let Ok(State{value: uc, consumed}) = Jzon::parseHex4(&bytes[0..4]);
+        let state = Jzon::parseHex4(&bytes[0..4])?;
+        let mut uc = state.value;
+
         if invalid(uc) {
             return Err(ParseErr::expect("invalid codepoint"));
         }
@@ -192,7 +194,7 @@ impl Jzon {
                 return Err(ParseErr::expect("need succeed codepoint"));
             }
 
-            let Ok(State{value: uc2, consumed}) = Jzon::parseHex4(&bytes[6..10]);
+            let State{value: uc2, consumed: _} = Jzon::parseHex4(&bytes[6..10])?;
             if invalid(uc2) {
                 return Err(ParseErr::expect("invalid codepoint"));
             }
@@ -231,8 +233,8 @@ impl Jzon {
 
     }
 
-    // (>>=) m a -> (a -> m b) -> m b
     fn parseHex4(bytes: &[u8]) -> ParseResult<u32> {
+        // and_then:: m a -> (a -> m b) -> m b
         if let Some(hex) = bytes[0..4].iter().enumerate().fold(
             Some(0u32), 
             |init, (i, ch)| (*ch as char).to_digit(16).and_then(|d| init.and_then(|x| Some(x + d * (0x1000u32 >> (i * 4))))))
@@ -250,7 +252,18 @@ mod tests {
     use super::*;
     #[test]
     fn test_parseUnicodePoint() {
-        let State{value, consumed: _consumed} = Jzon::parseUnicodePoint(&[b'd', b'8', b'3', b'd', b'd', b'c', b'a', b'f']).unwrap();
-        assert_eq!('💯', value)
+        let State{value, consumed: _consumed} = Jzon::parseUnicodePoint("d83d\\udcabf".as_bytes()).unwrap();
+        assert_eq!('💯', value);
+    }
+
+    #[test]
+    fn test_parseHex4() {
+        let state = Jzon::parseHex4("aa01".as_bytes()).unwrap(); 
+        assert_eq!(state.value, 0xaa01u32);
+
+        let state = Jzon::parseHex4("ffff".as_bytes()).unwrap(); 
+        assert_eq!(state.value, 0xffffu32);
+        
+        assert!(Jzon::parseHex4("fhff".as_bytes()).is_err());
     }
 }
