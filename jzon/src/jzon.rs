@@ -19,6 +19,7 @@ pub enum Jzon {
 
 #[derive(Debug)]
 pub enum ParseErr {
+    ExpectPair,
     ExpectBool,
     ExpectNull,
     ExpectColon,
@@ -33,8 +34,8 @@ pub enum ParseErr {
 }
 
 pub struct State<T> {
-    value: T,
-    consumed: usize,
+    pub value: T,
+    pub consumed: usize,
 }
 
 pub type ParseResult<T> = Result<State<T>, ParseErr>;
@@ -46,16 +47,15 @@ impl From<std::option::NoneError> for ParseErr {
 }
 
 impl Jzon {
+    const VALUE_NULL: Jzon = Jzon::Null;
     const VALUE_TRUE: Jzon = Jzon::Bool(true);
     const VALUE_FALSE: Jzon = Jzon::Bool(false);
-    const VALUE_NULL: Jzon = Jzon::Null;
 
     pub fn parse(bytes: &[u8]) -> ParseResult<Jzon> {
-        match bytes[0] as char {
-            ' ' | '\t' | '\r' | '\n' => Jzon::parse(&bytes[1..]),
-            '-' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | '0' => {
-                Jzon::parse_number(bytes)
-            }
+        let spaces = Jzon::parse_space(bytes).unwrap();
+        let bytes = &bytes[spaces.consumed..];
+        let parsed = match bytes[0] as char {
+            '-' | '0'..='9' => Jzon::parse_number(bytes),
             't' => Jzon::parse_true(bytes),
             'f' => Jzon::parse_false(bytes),
             'n' => Jzon::parse_null(bytes),
@@ -63,107 +63,90 @@ impl Jzon {
             '{' => Jzon::parse_object(bytes),
             '[' => Jzon::parse_array(bytes),
             _ => Err(ParseErr::ExpectPrefix),
-        }
+        }?;
+
+        Ok(State {
+            value: parsed.value,
+            consumed: parsed.consumed + spaces.consumed,
+        })
     }
 
     fn parse_object(bytes: &[u8]) -> ParseResult<Jzon> {
-        let mut state = State {
-            value: Jzon::Object(HashMap::new()),
-            consumed: 0,
-        };
+        assert_eq!(bytes[0], b'{');
+        let mut map = HashMap::new();
+        let mut consumed = 1;
 
-        if let Jzon::Object(ref mut map) = state.value {
-            loop {
-                match Jzon::parse_pair(&bytes[(1 + state.consumed)..]) {
-                    Ok(State {
-                        value: (key, value),
-                        consumed: n,
-                    }) => {
-                        map.insert(key, value);
-                        state.consumed += n;
+        loop {
+            match bytes[consumed] as char {
+                ',' => {
+                    if map.is_empty() {
+                        return Err(ParseErr::ExpectPair);
                     }
-                    Err(e) => return Err(e),
+                    consumed += 1;
+                    continue;
                 }
-
-                match bytes[1 + state.consumed] as char {
-                    ',' => continue,
-                    '}' => break,
-                    ' ' | '\t' | '\n' | '\r' => continue,
-                    _ => return Err(ParseErr::ExpectCommaBrace),
+                ' ' | '\t' | '\n' | '\r' => {
+                    consumed += 1;
+                    continue;
+                }
+                '}' => {
+                    consumed += 1;
+                    break;
+                }
+                _ => {
+                    let pair = Jzon::parse_pair(&bytes[consumed..])?;
+                    map.insert(pair.value.0, pair.value.1);
+                    consumed += pair.consumed;
+                    continue;
                 }
             }
-
-            Ok(state)
-        } else {
-            Err(ParseErr::ExpectCommaBrace)
         }
-    }
 
-    fn parse_pair(bytes: &[u8]) -> ParseResult<(String, Jzon)> {
-        if bytes[0] as char == '"' {
-            match Jzon::parse_string_literal(bytes) {
-                Ok(State {
-                    value: k,
-                    consumed: nk,
-                }) => {
-                    if bytes[nk] as char != ':' {
-                        return Err(ParseErr::ExpectColon);
-                    }
-
-                    if let Ok(State {
-                        value,
-                        consumed: nv,
-                    }) = Jzon::parse(&bytes[nk + 1..])
-                    {
-                        return Ok(State {
-                            value: (k, value),
-                            consumed: nk + 1 + nv,
-                        });
-                    } else {
-                        return Err(ParseErr::ExpectValue);
-                    }
-                }
-                Err(e) => return Err(e),
-            }
-        } else {
-            Err(ParseErr::ExpectQuote)
-        }
+        Ok(State {
+            value: Jzon::Object(map),
+            consumed,
+        })
     }
 
     fn parse_array(bytes: &[u8]) -> ParseResult<Jzon> {
-        let mut state = State {
-            value: Jzon::Array(Vec::new()),
-            consumed: 0,
-        };
+        assert_eq!(bytes[0], b'[');
+        let mut vec = Vec::new();
+        let mut consumed = 1;
 
-        if let Jzon::Array(ref mut vec) = state.value {
-            loop {
-                match Jzon::parse(&bytes[(1 + state.consumed)..]) {
-                    Ok(State {
-                        value: v,
-                        consumed: n,
-                    }) => {
-                        vec.push(v);
-                        state.consumed += n;
+        loop {
+            match bytes[consumed] as char {
+                ',' => {
+                    if vec.is_empty() {
+                        return Err(ParseErr::ExpectValue);
                     }
-                    Err(e) => return Err(e),
+                    consumed += 1;
+                    continue;
                 }
-
-                match bytes[1 + state.consumed] as char {
-                    ',' => continue,
-                    ']' => break,
-                    ' ' | '\t' | '\n' | '\r' => continue,
-                    _ => return Err(ParseErr::ExpectCommaBracket),
+                ' ' | '\t' | '\n' | '\r' => {
+                    consumed += 1;
+                    continue;
+                }
+                ']' => {
+                    consumed += 1;
+                    break;
+                }
+                _ => {
+                    let elem = Jzon::parse(&bytes[consumed..])?;
+                    vec.push(elem.value);
+                    consumed += elem.consumed;
+                    continue;
                 }
             }
-
-            Ok(state)
-        } else {
-            Err(ParseErr::ExpectCommaBracket)
         }
+
+        Ok(State {
+            value: Jzon::Array(vec),
+            consumed,
+        })
     }
 
     fn parse_true(bytes: &[u8]) -> ParseResult<Jzon> {
+        assert_eq!(bytes[0], b't');
         match bytes[0..4] {
             [b't', b'r', b'u', b'e'] => Ok(State {
                 value: Jzon::VALUE_TRUE,
@@ -174,6 +157,7 @@ impl Jzon {
     }
 
     fn parse_false(bytes: &[u8]) -> ParseResult<Jzon> {
+        assert_eq!(bytes[0], b'f');
         match bytes[0..5] {
             [b'f', b'a', b'l', b's', b'e'] => Ok(State {
                 value: Jzon::VALUE_FALSE,
@@ -184,6 +168,7 @@ impl Jzon {
     }
 
     fn parse_null(bytes: &[u8]) -> ParseResult<Jzon> {
+        assert_eq!(bytes[0], b'n');
         match bytes[0..4] {
             [b'n', b'u', b'l', b'l'] => Ok(State {
                 value: Jzon::VALUE_NULL,
@@ -195,12 +180,13 @@ impl Jzon {
 
     fn parse_number(_bytes: &[u8]) -> ParseResult<Jzon> {
         Ok(State {
-            value: Jzon::Integer(0),
+            value: Jzon::Integer(1),
             consumed: 1,
         })
     }
 
     fn parse_string(bytes: &[u8]) -> ParseResult<Jzon> {
+        assert_eq!(bytes[0], b'"');
         let State { value, consumed } = Jzon::parse_string_literal(&bytes)?;
         Ok(State {
             value: Jzon::String(value),
@@ -208,22 +194,55 @@ impl Jzon {
         })
     }
 
-    fn parse_string_literal(bytes: &[u8]) -> ParseResult<String> {
-        let mut s = String::new();
-        let remain_bytes = &bytes[1..];
-        loop {
-            s.push(match remain_bytes[0] as char {
-                '\\' => {
-                    let State { value, consumed: _ } = Jzon::parse_escaped(&bytes[1..])?;
-                    value
-                }
-                ch => ch,
-            });
+    fn parse_pair(bytes: &[u8]) -> ParseResult<(String, Jzon)> {
+        assert_eq!(bytes[0], b'"');
+        if bytes[0] != b'"' {
+            return Err(ParseErr::ExpectQuote);
         }
+
+        let key = Jzon::parse_string_literal(bytes)?;
+        let spaces = Jzon::parse_space(&bytes[key.consumed..]).unwrap();
+
+        if bytes[key.consumed + spaces.consumed] != b':' {
+            return Err(ParseErr::ExpectColon);
+        }
+
+        let val = Jzon::parse(&bytes[key.consumed + spaces.consumed + 1..])?;
+        Ok(State {
+            value: (key.value, val.value),
+            consumed: key.consumed + spaces.consumed + 1 + val.consumed,
+        })
+    }
+
+    fn parse_string_literal(bytes: &[u8]) -> ParseResult<String> {
+        assert_eq!(bytes[0], b'"');
+        let mut value = String::new();
+        let mut consumed = 1;
+        loop {
+            match bytes[consumed] {
+                b'\\' => {
+                    let escaped = Jzon::parse_escaped(&bytes[consumed..])?;
+                    value.push(escaped.value);
+                    consumed += escaped.consumed;
+                }
+                b'\"' => {
+                    consumed += 1;
+                    break;
+                }
+                abyte => {
+                    value.push(abyte as char);
+                    consumed += 1;
+                }
+            };
+        }
+
+        Ok(State { value, consumed })
     }
 
     fn parse_escaped(bytes: &[u8]) -> ParseResult<char> {
-        let ch = match bytes[1] as char {
+        assert_eq!(bytes[0], b'\\');
+        let consumed = 2;
+        let value = match bytes[1] as char {
             'b' => 8 as char,
             't' => '\t',
             'n' => '\n',
@@ -235,21 +254,22 @@ impl Jzon {
             _ => return Err(ParseErr::ExpectEscaped),
         };
 
-        Ok(State {
-            value: ch,
-            consumed: 2,
-        })
+        Ok(State { value, consumed })
     }
 
     fn parse_unicode(bytes: &[u8]) -> ParseResult<char> {
         assert_eq!(bytes[0], b'\\');
         assert_eq!(bytes[1], b'u');
+        fn invalid(cp: u32) -> bool {
+            0xDC00 <= cp && cp <= 0xDFFF || cp == 0
+        }
         let mut consumed = 2;
         let state = Jzon::parse_hex4(&bytes[2..6])?;
+
         consumed += 4;
         let mut uc = state.value;
 
-        if Jzon::invalid(uc) {
+        if invalid(uc) {
             return Err(ParseErr::ExpectCodePoint);
         }
 
@@ -291,14 +311,43 @@ impl Jzon {
         }
     }
 
-    fn invalid(cp: u32) -> bool {
-        0xDC00 <= cp && cp <= 0xDFFF || cp == 0
+    #[inline]
+    fn parse_space(bytes: &[u8]) -> ParseResult<()> {
+        let value = ();
+        let mut consumed = 0;
+        loop {
+            match bytes[consumed] as char {
+                ' ' | '\t' | '\n' | '\r' => {
+                    consumed += 1;
+                    continue;
+                }
+                _ => break,
+            }
+        }
+
+        Ok(State { value, consumed })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    const JSON: &'static str = r#"
+    {
+    "string": "a string literal",
+        "integer": 1,
+        "array": ["a", "b", "c", "d"],
+        "object": {
+            "nest-key": "nest value",
+            "nest-int": 1
+        }
+    }"#;
+
+    #[test]
+    fn test_parse() {
+        let jz = Jzon::parse(JSON.as_bytes());
+        assert!(jz.is_ok());
+    }
 
     #[test]
     fn test_parse_unicode() {
