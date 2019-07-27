@@ -262,7 +262,7 @@ impl Jzon {
                     st = DIGIT1;
                     ex = DIGIT1 | EXP;
                     t *= 10f64;
-                    f = (d - b'0') as f64 / t;
+                    f += (d - b'0') as f64 / t;
                 }
                 d @ b'1'..=b'9' if matchs!(st, START) => {
                     st = NONE_ZERO;
@@ -294,7 +294,15 @@ impl Jzon {
                     st = DIGIT2;
                     ex = DIGIT2;
                     e = e * 10 + (d - b'0') as i64;
-                    f *= (10 ^ (e * exp_pos)) as f64;
+                    if exp_pos == 1 {
+                        for _ in 0..e {
+                            f *= 10f64
+                        }
+                    } else {
+                        for _ in 0..e {
+                            f /= 10f64
+                        }
+                    }
                 }
                 _ => {
                     break;
