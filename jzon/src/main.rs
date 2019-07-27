@@ -1,6 +1,5 @@
 extern crate jzon;
 use jzon::jzon::Jzon;
-
 const JSON: &'static str = r#"
 {
 "string": "a string literal",
@@ -9,7 +8,7 @@ const JSON: &'static str = r#"
     "array": ["a", "b", "c", "d"],
     "object": {
         "nest-key": "nest value",
-        "nest-int": 1
+        "nest-int": 1.12
     }
 }"#;
 

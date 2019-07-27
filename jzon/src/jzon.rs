@@ -48,35 +48,35 @@ impl From<std::option::NoneError> for ParseErr {
     }
 }
 
-const START: u16 = 2 << 0;     // start
-const ZERO: u16 = 2 << 1;      // 0
-const DOT: u16 = 2 << 2;       // .
-const DIGIT0: u16 = 2 << 3;    // 0-9 after _nNoneZero
-const DIGIT1: u16 = 2 << 4;    // 0-9 after _nDot
-const DIGIT2: u16 = 2 << 5;    // 0-9 after _nExp or _nPlus or _Minus
+const START: u16 = 2 << 0; // start
+const ZERO: u16 = 2 << 1; // 0
+const DOT: u16 = 2 << 2; // .
+const DIGIT0: u16 = 2 << 3; // 0-9 after _nNoneZero
+const DIGIT1: u16 = 2 << 4; // 0-9 after _nDot
+const DIGIT2: u16 = 2 << 5; // 0-9 after _nExp or _nPlus or _Minus
 const NONE_ZERO: u16 = 2 << 6; // 1-9
-const EXP: u16 = 2 << 7;       // e E
-const PLUG: u16 = 2 << 8;      // +
-const MINUS: u16 = 2 << 9;     // -
+const EXP: u16 = 2 << 7; // e E
+const PLUS: u16 = 2 << 8; // +
+const MINUS: u16 = 2 << 9; // -
 
-macro_rules! and {
+macro_rules! or{
     ($s:expr, $e:expr) => {{
-        $s as u16 | $e as u16
+        $s | $e
     }};
 
     ($e:expr, $($es:expr),+) => {{
-        $e as u16 | (and! { $($es),+ })
+        $e | (or! { $($es),+ })
     }};
 
 }
 
 macro_rules! matchs {
     ($s:expr, $e:expr) => {{
-        and!($s, $e) > 0
+        $s & $e > 0
     }};
 
     ($e:expr, $($es:expr),+) => {{
-        $e as u16 | (and! { $($es),+ }) > 0
+        $e & (or! { $($es),+ }) > 0
     }};
 }
 
@@ -230,14 +230,20 @@ impl Jzon {
         let mut is_float = false;
         let mut exp_pos = 1;
         let mut st = START;
-        let mut ex = ZERO| NONE_ZERO;
+        let mut ex = ZERO | NONE_ZERO;
 
         if bytes[0] == b'-' {
-            let State{value, consumed} = Jzon::parse_number(&bytes[1..])?;
+            let State { value, consumed } = Jzon::parse_number(&bytes[1..])?;
             return match value {
-                Jzon::Integer(i) => Ok(State{value: Jzon::Integer(-i), consumed: consumed+1}),
-                Jzon::Double(d) => Ok(State{value: Jzon::Double(-d), consumed: consumed+1}),
-                _=> Err(ParseErr::ExpectDigit)
+                Jzon::Integer(i) => Ok(State {
+                    value: Jzon::Integer(-i),
+                    consumed: consumed + 1,
+                }),
+                Jzon::Double(d) => Ok(State {
+                    value: Jzon::Double(-d),
+                    consumed: consumed + 1,
+                }),
+                _ => Err(ParseErr::ExpectDigit),
             };
         }
 
@@ -254,29 +260,29 @@ impl Jzon {
                 }
                 d @ b'0'..=b'9' if matchs!(st, DOT, DIGIT1) => {
                     st = DIGIT1;
-                    ex = DIGIT1|EXP;
+                    ex = DIGIT1 | EXP;
                     t *= 10f64;
-                    f = d as f64 / t;
+                    f = (d - b'0') as f64 / t;
                 }
                 d @ b'1'..=b'9' if matchs!(st, START) => {
                     st = NONE_ZERO;
-                    ex = DOT|DIGIT0|EXP;
-                    n = d as i64;
-                    f = d as f64;
+                    ex = DOT | DIGIT0 | EXP;
+                    n = (d - b'0') as i64;
+                    f = (d - b'0') as f64;
                 }
                 d @ b'0'..=b'9' if matchs!(st, DIGIT0, NONE_ZERO) => {
                     st = DIGIT0;
-                    ex = DIGIT0|EXP|DOT;
-                    n = n * 10i64 + d as i64;
-                    f = f * 10f64 + d as f64;
+                    ex = DIGIT0 | EXP | DOT;
+                    n = n * 10i64 + (d - b'0') as i64;
+                    f = f * 10f64 + (d - b'0') as f64;
                 }
                 b'e' | b'E' if matchs!(st, ZERO, NONE_ZERO, DIGIT0, DIGIT1) => {
                     st = EXP;
-                    ex = PLUG|MINUS|DIGIT2;
+                    ex = PLUS | MINUS | DIGIT2;
                     is_float = true;
                 }
                 b'+' if matchs!(st, EXP) => {
-                    st = PLUG;
+                    st = PLUS;
                     ex = DIGIT2;
                 }
                 b'-' if matchs!(st, EXP) => {
@@ -284,10 +290,10 @@ impl Jzon {
                     ex = DIGIT2;
                     exp_pos = -1;
                 }
-                d @ b'0'..=b'9' if matchs!(st, EXP, MINUS, PLUG, DIGIT2) => {
+                d @ b'0'..=b'9' if matchs!(st, EXP, MINUS, PLUS, DIGIT2) => {
                     st = DIGIT2;
                     ex = DIGIT2;
-                    e = e * 10 + d as i64;
+                    e = e * 10 + (d - b'0') as i64;
                     f *= (10 ^ (e * exp_pos)) as f64;
                 }
                 _ => {
@@ -297,7 +303,7 @@ impl Jzon {
             consumed += 1;
         }
 
-        if matchs!(st, ZERO|NONE_ZERO|DIGIT0|DIGIT1|DIGIT2) {
+        if matchs!(st, ZERO | NONE_ZERO | DIGIT0 | DIGIT1 | DIGIT2) {
             Ok(State {
                 value: if is_float {
                     Jzon::Double(f)
