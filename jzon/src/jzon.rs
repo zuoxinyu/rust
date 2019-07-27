@@ -294,15 +294,7 @@ impl Jzon {
                     st = DIGIT2;
                     ex = DIGIT2;
                     e = e * 10 + (d - b'0') as i64;
-                    if exp_pos == 1 {
-                        for _ in 0..e {
-                            f *= 10f64
-                        }
-                    } else {
-                        for _ in 0..e {
-                            f /= 10f64
-                        }
-                    }
+                    f *= 10f64.powf((e * exp_pos) as f64);
                 }
                 _ => {
                     break;
