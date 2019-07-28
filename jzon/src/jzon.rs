@@ -3,6 +3,7 @@
 use std::char;
 use std::collections::HashMap;
 use std::convert::From;
+use std::f64;
 use std::string::String;
 use std::vec::Vec;
 
@@ -95,24 +96,41 @@ macro_rules! ImplParialEqForJzon {
         }
 
         impl PartialEq<Jzon> for $t {
-            fn eq(&self, other :&Jzon) -> bool {
+            fn eq(&self, other: &Jzon) -> bool {
                 if let $jt(v) = other {
                     v == self
                 } else {
                     false
                 }
-
             }
-
         }
     };
 }
 
 ImplParialEqForJzon!(i64, Jzon::Integer);
-ImplParialEqForJzon!(f64, Jzon::Double);
 ImplParialEqForJzon!(&str, Jzon::String);
 ImplParialEqForJzon!(String, Jzon::String);
 ImplParialEqForJzon!(bool, Jzon::Bool);
+
+impl PartialEq<f64> for Jzon {
+    fn eq(&self, other: &f64) -> bool {
+        if let Jzon::Double(v) = self {
+            f64::abs(v - other) < f64::EPSILON
+        } else {
+            false
+        }
+    }
+}
+
+impl PartialEq<Jzon> for f64 {
+    fn eq(&self, other: &Jzon) -> bool {
+        if let Jzon::Double(v) = other {
+            f64::abs(v - self) < f64::EPSILON
+        } else {
+            false
+        }
+    }
+}
 
 impl Jzon {
     const VALUE_NULL: Jzon = Jzon::Null;
@@ -544,8 +562,8 @@ mod tests {
 
     #[test]
     fn parse_string() {
-        let jz = Jzon::parse_string(r#""a string literal","#.as_bytes()).unwrap().value;
-        assert_eq!("a string literal", jz);
+        let jz = Jzon::parse_string(r#""a string literal","#.as_bytes());
+        assert_eq!("a string literal", jz.unwrap().value);
     }
 
     #[test]
