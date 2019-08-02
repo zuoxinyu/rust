@@ -1,18 +1,18 @@
 extern crate jzon;
 use jzon::jzon::Jzon;
-use std::fs;
-use std::io;
-use std::time;
 use std::env;
+use std::fs;
+use std::time;
 
-fn main() -> io::Result<()> {
+// TODO: Generate benchmark results into Readme.
+fn main() {
     let args = env::args();
     if args.len() > 1 {
         let it = args.last();
         let text = it.unwrap();
         let result = Jzon::parse(text.as_bytes()).unwrap();
         println!("{:?}", result);
-        return Ok(());
+        return;
     }
 
     test_json_dir("data/roundtrip");
@@ -20,7 +20,6 @@ fn main() -> io::Result<()> {
     test_json_file("data/canada.json");
     test_json_file("data/twitter.json");
     test_json_file("data/citm_catalog.json");
-    Ok(())
 }
 
 fn test_json_dir(dir_name: &str) {

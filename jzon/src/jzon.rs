@@ -15,14 +15,15 @@ pub enum ParseErr {
     ExpectValue,
     ExpectQuote,
     ExpectDigit,
+    ExpectNoMore,
     ExpectPrefix,
+    ExpectNoneEOF,
     ExpectEscaped,
     ExpectHexDigit,
     ExpectCodePoint,
     ExpectCommaBrace,
     ExpectNoneControl,
     ExpectCommaBracket,
-    ExpectNoneEOF,
 }
 
 #[derive(Debug)]
@@ -125,6 +126,21 @@ impl Jzon {
     const VALUE_FALSE: Jzon = Jzon::Bool(false);
 
     pub fn parse(bytes: &[u8]) -> ParseResult<Jzon> {
+        let mut v = Jzon::parse_value(bytes)?;
+        let State { consumed, .. } = &mut v;
+
+        loop {
+            match bytes.iter().nth(*consumed) {
+                Some(b' ') | Some(b'\t') | Some(b'\r') | Some(b'\n') => {
+                    *consumed += 1;
+                }
+                Some(_) => break Err(ExpectNoMore),
+                None => break Ok(v),
+            }
+        }
+    }
+
+    fn parse_value(bytes: &[u8]) -> ParseResult<Jzon> {
         let spaces = Jzon::parse_space(bytes).unwrap();
         let bytes = &bytes[spaces.consumed..];
         let mut it = bytes.iter();
@@ -143,10 +159,9 @@ impl Jzon {
             None => Err(ExpectNoneEOF),
         }?;
 
-        Ok(State {
-            value: parsed.value,
-            consumed: parsed.consumed + spaces.consumed,
-        })
+        let consumed = parsed.consumed + spaces.consumed;
+        let value = parsed.value;
+        Ok(State { value, consumed })
     }
 
     fn parse_object(bytes: &[u8]) -> ParseResult<Jzon> {
@@ -214,7 +229,7 @@ impl Jzon {
                     }
                     _ => {
                         extra_comma = false;
-                        let elem = Jzon::parse(&bytes[consumed..])?;
+                        let elem = Jzon::parse_value(&bytes[consumed..])?;
                         vec.push(elem.value);
                         consumed += elem.consumed;
                         continue;
@@ -365,7 +380,7 @@ impl Jzon {
             return Err(ExpectColon);
         }
 
-        let val = Jzon::parse(&bytes[key.consumed + 1 + spaces.consumed..])?;
+        let val = Jzon::parse_value(&bytes[key.consumed + 1 + spaces.consumed..])?;
         Ok(State {
             value: (key.value, val.value),
             consumed: key.consumed + spaces.consumed + 1 + val.consumed,
@@ -519,7 +534,7 @@ mod tests {
 
     #[test]
     fn parse() {
-        let jz = Jzon::parse(JSON.as_bytes()).unwrap();
+        let jz = Jzon::parse_value(JSON.as_bytes()).unwrap();
         if let Jzon::Object(v) = jz.value {
             assert_eq!(5, v.len());
         } else {

@@ -44,10 +44,10 @@ Sample files from [JSON\_checker](http://www.json.org/JSON\_checker/).
  | fail04.json          | :heavy_check_mark: | 320ns  | 
  | fail05.json          | :heavy_check_mark: | 340ns  | 
  | fail06.json          | :heavy_check_mark: | 110ns  | 
- | fail07.json          | :x:                | 290ns  | 
- | fail08.json          | :x:                | 240ns  | 
+ | fail07.json          | :heavy_check_mark: | 290ns  | 
+ | fail08.json          | :heavy_check_mark: | 240ns  | 
  | fail09.json          | :heavy_check_mark: | 490ns  | 
- | fail10.json          | :x:                | 450ns  | 
+ | fail10.json          | :heavy_check_mark: | 450ns  | 
  | fail11.json          | :heavy_check_mark: | 500ns  | 
  | fail12.json          | :heavy_check_mark: | 330ns  | 
  | fail13.json          | :heavy_check_mark: | 860ns  | 
