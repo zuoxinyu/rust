@@ -305,17 +305,17 @@ impl Jzon {
                     d @ b'0'..=b'9' if matches!(st, DOT | DIGIT1) => {
                         st = DIGIT1;
                         t *= 10f64;
-                        f += (d - b'0') as f64 / t;
+                        f += (d - b'0') as f64 * negtive as f64 / t;
                     }
                     d @ b'1'..=b'9' if matches!(st, START | NEG) => {
                         st = NONE_ZERO;
-                        n = (d - b'0') as i64;
-                        f = (d - b'0') as f64;
+                        n = negtive * (d - b'0') as i64;
+                        f = negtive as f64 * (d - b'0') as f64;
                     }
                     d @ b'0'..=b'9' if matches!(st, DIGIT0 | NONE_ZERO) => {
                         st = DIGIT0;
-                        n = n * 10i64 + (d - b'0') as i64;
-                        f = f * 10f64 + (d - b'0') as f64;
+                        n = n * 10i64 + negtive * (d - b'0') as i64;
+                        f = f * 10f64 + negtive as f64 * ((d - b'0') as f64);
                     }
                     b'e' | b'E' if matches!(st, ZERO | NONE_ZERO | DIGIT0 | DIGIT1) => {
                         st = EXP;
@@ -346,9 +346,9 @@ impl Jzon {
 
         Ok(State {
             value: if is_float {
-                Jzon::Double(f * negtive as f64)
+                Jzon::Double(f)
             } else {
-                Jzon::Integer(n * negtive)
+                Jzon::Integer(n)
             },
             consumed,
         })

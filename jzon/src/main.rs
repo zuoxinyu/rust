@@ -2,14 +2,14 @@ extern crate jzon;
 use jzon::jzon::Jzon;
 use std::fs;
 use std::io;
-use std::path::Path;
-//use std::string::String;
 
 const JSON: &'static str = r#"
 {
-"string": "a string literal",
+    "string": "a string literal",
     "integer": -142,
     "double": -0.34E+12,
+    "boolean": true,
+    "null": null,
     "array": ["a", "b", "c", "d"],
     "object": {
         "nest-key": "nest value",
