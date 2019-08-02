@@ -3,37 +3,32 @@ use jzon::jzon::Jzon;
 use std::fs;
 use std::io;
 
-const JSON: &'static str = r#"
-{
-    "string": "a string literal",
-    "integer": -142,
-    "double": -0.34E+12,
-    "boolean": true,
-    "null": null,
-    "array": ["a", "b", "c", "d"],
-    "object": {
-        "nest-key": "nest value",
-        "nest-int": 1.12
-    }
-}"#;
-
 fn main() -> io::Result<()> {
-    let jz = Jzon::parse(JSON.as_bytes()).unwrap();
-    println!("{:?}", jz.value);
-
-    let checker_dir = fs::read_dir("data/roundtrip")?;
-
-    for entry in checker_dir {
-        if let Ok(e) = entry {
-            let name = e.file_name();
-            let name = name.to_str().unwrap();
-            print!("{}: ", name); 
-            let content = fs::read_to_string(e.path()).unwrap();
-            let parsed = Jzon::parse(content.as_bytes());
-            print!("{}\n", if parsed.is_ok() {"pass"} else {"FAIL"});
-        }
-    }
-
+    test_json_dir("data/roundtrip");
+    test_json_dir("data/jsonchecker");
+    test_json_file("data/canada.json");
+    test_json_file("data/twitter.json");
+    test_json_file("data/citm_catalog.json");
     Ok(())
 }
 
+fn test_json_dir(dir_name: &str) {
+    let dir = fs::read_dir(dir_name).unwrap();
+    for e in dir {
+        if let Ok(entry) = e {
+            if let Some(ext) = entry.path().extension() {
+                if ext == "json" {
+                    test_json_file(entry.path().to_str().unwrap());
+                }
+            }
+
+        }
+    }
+}
+
+fn test_json_file(file: &str) {
+    print!("{}: ", file);
+    let content = fs::read_to_string(file).unwrap();
+    let parsed = Jzon::parse(content.as_bytes());
+    print!("{}\n", if parsed.is_ok() { "pass" } else { "FAIL" });
+}

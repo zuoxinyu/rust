@@ -178,10 +178,7 @@ impl Jzon {
                         continue;
                     }
                     _ => {
-                        let rem = str::from_utf8(&bytes[consumed..]).unwrap();
-                        println!("ch: {}, consumed: {}", *ch as char, consumed);
-                        println!("{:?}", rem);
-                        return Err(ExpectPair)
+                        return Err(ExpectPair);
                     }
                 },
                 None => return Err(ExpectNoneEOF),
@@ -224,8 +221,6 @@ impl Jzon {
                     }
                 },
                 None => {
-                    let rem = str::from_utf8(&bytes[consumed..]).unwrap();
-                    println!("consumed: {}, rem: {:?}", consumed, rem);
                     return Err(ExpectNoneEOF);
                 }
             }
