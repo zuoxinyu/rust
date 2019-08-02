@@ -3,8 +3,18 @@ use jzon::jzon::Jzon;
 use std::fs;
 use std::io;
 use std::time;
+use std::env;
 
 fn main() -> io::Result<()> {
+    let args = env::args();
+    if args.len() > 1 {
+        let it = args.last();
+        let text = it.unwrap();
+        let result = Jzon::parse(text.as_bytes()).unwrap();
+        println!("{:?}", result);
+        return Ok(());
+    }
+
     test_json_dir("data/roundtrip");
     test_json_dir("data/jsonchecker");
     test_json_file("data/canada.json");

@@ -409,6 +409,7 @@ impl Jzon {
         let value = match it.next() {
             Some(b'b') => 8 as char,
             Some(b't') => '\t',
+            Some(b'f') => 12 as char,
             Some(b'n') => '\n',
             Some(b'r') => '\r',
             Some(b'"') => '\"',
