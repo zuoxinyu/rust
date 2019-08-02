@@ -3,6 +3,8 @@ A simple JSON library in Rust.
 
 ## Sample Results
 Sample files from [JSON\_checker](http://www.json.org/JSON\_checker/).
+P.S.: `fail01.json` is excluded as it is relaxed in RFC7159. `fail18.json` is excluded as depth of JSON is not specified.
+
 
 ### Roundtrip
  | file             | passed             | cost   | 
