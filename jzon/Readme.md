@@ -2,7 +2,7 @@
 A simple JSON library in Rust.
 
 ## Sample Results
-Sample files from (JSON\_checker)[http://www.json.org/JSON\_checker/].
+Sample files from [JSON\_checker](http://www.json.org/JSON\_checker/).
 
 ### Roundtrip
  | file             | passed             | cost   | 
@@ -39,45 +39,45 @@ Sample files from (JSON\_checker)[http://www.json.org/JSON\_checker/].
  | file                 | passed             | cost   | 
  | -------------------  | ------             | ------ | 
  | fail01\_EXCLUDE.json | :x:                | 560ns  | 
- | fail24.json          | :heavy_check_mark: | 90ns   | 
- | fail33.json          | :heavy_check_mark: | 320ns  | 
- | fail30.json          | :heavy_check_mark: | 140ns  | 
- | fail16.json          | :heavy_check_mark: | 70ns   | 
- | fail13.json          | :heavy_check_mark: | 860ns  | 
- | fail20.json          | :heavy_check_mark: | 280ns  | 
- | pass03.json          | :heavy_check_mark: | 1.71µs | 
- | fail08.json          | :x:                | 240ns  | 
- | fail12.json          | :heavy_check_mark: | 330ns  | 
- | fail10.json          | :x:                | 450ns  | 
- | fail29.json          | :heavy_check_mark: | 110ns  | 
- | fail03.json          | :heavy_check_mark: | 70ns   | 
- | fail22.json          | :heavy_check_mark: | 340ns  | 
- | pass02.json          | :heavy_check_mark: | 3.3µs  | 
- | fail05.json          | :heavy_check_mark: | 340ns  | 
- | fail18\_EXCLUDE.json | :x:                | 1.28µs | 
- | fail06.json          | :heavy_check_mark: | 110ns  | 
- | fail17.json          | :heavy_check_mark: | 300ns  | 
- | fail15.json          | :heavy_check_mark: | 320ns  | 
- | fail19.json          | :heavy_check_mark: | 240ns  | 
- | fail32.json          | :heavy_check_mark: | 540ns  | 
- | fail11.json          | :heavy_check_mark: | 500ns  | 
- | fail27.json          | :heavy_check_mark: | 140ns  | 
- | fail25.json          | :heavy_check_mark: | 70ns   | 
- | fail14.json          | :heavy_check_mark: | 530ns  | 
- | fail07.json          | :x:                | 290ns  | 
- | pass01.json          | :x:                | 7.85µs | 
- | fail21.json          | :heavy_check_mark: | 340ns  | 
- | fail31.json          | :heavy_check_mark: | 120ns  | 
- | fail28.json          | :heavy_check_mark: | 160ns  | 
- | fail04.json          | :heavy_check_mark: | 320ns  | 
  | fail02.json          | :heavy_check_mark: | 240ns  | 
- | fail23.json          | :heavy_check_mark: | 300ns  | 
+ | fail03.json          | :heavy_check_mark: | 70ns   | 
+ | fail04.json          | :heavy_check_mark: | 320ns  | 
+ | fail05.json          | :heavy_check_mark: | 340ns  | 
+ | fail06.json          | :heavy_check_mark: | 110ns  | 
+ | fail07.json          | :x:                | 290ns  | 
+ | fail08.json          | :x:                | 240ns  | 
  | fail09.json          | :heavy_check_mark: | 490ns  | 
+ | fail10.json          | :x:                | 450ns  | 
+ | fail11.json          | :heavy_check_mark: | 500ns  | 
+ | fail12.json          | :heavy_check_mark: | 330ns  | 
+ | fail13.json          | :heavy_check_mark: | 860ns  | 
+ | fail14.json          | :heavy_check_mark: | 530ns  | 
+ | fail15.json          | :heavy_check_mark: | 320ns  | 
+ | fail16.json          | :heavy_check_mark: | 70ns   | 
+ | fail17.json          | :heavy_check_mark: | 300ns  | 
+ | fail18\_EXCLUDE.json | :x:                | 1.28µs | 
+ | fail19.json          | :heavy_check_mark: | 240ns  | 
+ | fail20.json          | :heavy_check_mark: | 280ns  | 
+ | fail21.json          | :heavy_check_mark: | 340ns  | 
+ | fail22.json          | :heavy_check_mark: | 340ns  | 
+ | fail23.json          | :heavy_check_mark: | 300ns  | 
+ | fail24.json          | :heavy_check_mark: | 90ns   | 
+ | fail25.json          | :heavy_check_mark: | 70ns   | 
  | fail26.json          | :heavy_check_mark: | 150ns  | 
+ | fail27.json          | :heavy_check_mark: | 140ns  | 
+ | fail28.json          | :heavy_check_mark: | 160ns  | 
+ | fail29.json          | :heavy_check_mark: | 110ns  | 
+ | fail30.json          | :heavy_check_mark: | 140ns  | 
+ | fail31.json          | :heavy_check_mark: | 120ns  | 
+ | fail32.json          | :heavy_check_mark: | 540ns  | 
+ | fail33.json          | :heavy_check_mark: | 320ns  | 
+ | pass01.json          | :x:                | 7.85µs | 
+ | pass02.json          | :heavy_check_mark: | 3.3µs  | 
+ | pass03.json          | :heavy_check_mark: | 1.71µs | 
 
 ### Big Files
  | file               | passed             | cost        | 
- | canada.json        | :heavy_check_mark: | 20.578376ms | 
+ | ------------------ | ------------------ | ----------- | 
  | canada.json        | :heavy_check_mark: | 20.578376ms | 
  | twitter.json       | :heavy_check_mark: | 6.466978ms  | 
  | citm\_catalog.json | :heavy_check_mark: | 9.749937ms  | 
