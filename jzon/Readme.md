@@ -71,7 +71,7 @@ Sample files from [JSON\_checker](http://www.json.org/JSON\_checker/).
  | fail31.json          | :heavy_check_mark: | 120ns  | 
  | fail32.json          | :heavy_check_mark: | 540ns  | 
  | fail33.json          | :heavy_check_mark: | 320ns  | 
- | pass01.json          | :x:                | 7.85µs | 
+ | pass01.json          | :heavy_check_mark: | 7.85µs | 
  | pass02.json          | :heavy_check_mark: | 3.3µs  | 
  | pass03.json          | :heavy_check_mark: | 1.71µs | 
 
