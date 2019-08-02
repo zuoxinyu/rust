@@ -2,6 +2,7 @@ extern crate jzon;
 use jzon::jzon::Jzon;
 use std::fs;
 use std::io;
+use std::time;
 
 fn main() -> io::Result<()> {
     test_json_dir("data/roundtrip");
@@ -21,7 +22,6 @@ fn test_json_dir(dir_name: &str) {
                     test_json_file(entry.path().to_str().unwrap());
                 }
             }
-
         }
     }
 }
@@ -29,6 +29,12 @@ fn test_json_dir(dir_name: &str) {
 fn test_json_file(file: &str) {
     print!("{}: ", file);
     let content = fs::read_to_string(file).unwrap();
+    let start = time::Instant::now();
     let parsed = Jzon::parse(content.as_bytes());
-    print!("{}\n", if parsed.is_ok() { "pass" } else { "FAIL" });
+    let end = time::Instant::now();
+    print!(
+        "{}, cost: {:?}\n",
+        if parsed.is_ok() { "pass" } else { "FAIL" },
+        end - start
+    );
 }
