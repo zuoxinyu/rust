@@ -12,12 +12,19 @@ const FAILED_MARK: &str = ":x:";
 
 fn main() {
     print!(r#"## Jzon
-A simple JSON library in Rust.
+A simple and ease-of-use JSON library in Rust.
 
 ## Sample Results
 Sample files from [JSON\_checker](http://www.json.org/JSON\_checker/).
 P.S.: `fail01.json` is excluded as it is relaxed in RFC7159. `fail18.json` is excluded as depth of JSON is not specified.
 "#);
+    println!("## TODO");
+    println!("- TODO: impl Display trait with more options");
+    println!("- TODO: impl Index trait with lifetime");
+    println!("- TODO: impl Iterator trait");
+    println!("- TODO: impl Deref trait");
+    println!("- TODO: impl From trait");
+    println!("- FIXME: float point number parsing precision");
 
     println!("\n### Roundtrip");
     print_table_header();
@@ -32,10 +39,6 @@ P.S.: `fail01.json` is excluded as it is relaxed in RFC7159. `fail18.json` is ex
     test_json_file(&Path::new("data/canada.json"));
     test_json_file(&Path::new("data/twitter.json"));
     test_json_file(&Path::new("data/citm_catalog.json"));
-
-    let content = fs::read_to_string("data/jsonchecker/pass01.json").unwrap();
-    let jz = Jzon::parse(content.as_bytes()).unwrap();
-    println!("{}", jz.value);
 }
 
 // m a -> (a -> m b) -> m b
