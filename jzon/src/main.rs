@@ -14,7 +14,7 @@ fn main() {
     print!(r#"## Jzon
 A simple and ease-of-use JSON library in Rust.
 
-## TODO";
+## TODO
 - TODO: impl Display trait with more options
 - TODO: impl Index trait with lifetime
 - TODO: impl Iterator trait
