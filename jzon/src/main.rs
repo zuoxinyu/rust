@@ -36,8 +36,10 @@ P.S.: `fail01.json` is excluded as it is relaxed in RFC7159. `fail18.json` is ex
 
 // m a -> (a -> m b) -> m b
 fn test_json_dir(dir: &Path) -> io::Result<()> {
-    for e in dir.read_dir()? {
-        let entry = e?;
+    let mut entries :Vec<_> = dir.read_dir()?.filter_map(|e| e.ok()).collect();
+    entries.sort_by_key(|file| file.path());
+    for e in entries {
+        let entry = e;
         let path = entry.path();
         if let Some(ext) = path.extension() {
             if ext != "json" {
