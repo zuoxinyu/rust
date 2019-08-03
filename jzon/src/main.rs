@@ -1,49 +1,104 @@
+#![feature(try_trait)]
 extern crate jzon;
 use jzon::jzon::Jzon;
-use std::env;
 use std::fs;
+use std::io;
+use std::path::Path;
 use std::time;
 
-// TODO: Generate benchmark results into Readme.
-fn main() {
-    let args = env::args();
-    if args.len() > 1 {
-        let it = args.last();
-        let text = it.unwrap();
-        let result = Jzon::parse(text.as_bytes()).unwrap();
-        println!("{:?}", result);
-        return;
-    }
+const UNITS: [&str; 6] = ["B", "K", "M", "G", "T", "P"];
+const PASSED_MARK: &str = ":heavy_check_mark:";
+const FAILED_MARK: &str = ":x:";
 
-    test_json_dir("data/roundtrip");
-    test_json_dir("data/jsonchecker");
-    test_json_file("data/canada.json");
-    test_json_file("data/twitter.json");
-    test_json_file("data/citm_catalog.json");
+fn main() {
+    print!(r#"## Jzon
+A simple JSON library in Rust.
+
+## Sample Results
+Sample files from [JSON\_checker](http://www.json.org/JSON\_checker/).
+P.S.: `fail01.json` is excluded as it is relaxed in RFC7159. `fail18.json` is excluded as depth of JSON is not specified.
+"#);
+
+    println!("\n### Roundtrip");
+    print_table_header();
+    let _ = test_json_dir(&Path::new("data/roundtrip"));
+
+    println!("\n### Corner Cases");
+    print_table_header();
+    let _ = test_json_dir(&Path::new("data/jsonchecker"));
+
+    println!("\n### Big Files");
+    print_table_header();
+    test_json_file(&Path::new("data/canada.json"));
+    test_json_file(&Path::new("data/twitter.json"));
+    test_json_file(&Path::new("data/citm_catalog.json"));
 }
 
-fn test_json_dir(dir_name: &str) {
-    let dir = fs::read_dir(dir_name).unwrap();
-    for e in dir {
-        if let Ok(entry) = e {
-            if let Some(ext) = entry.path().extension() {
-                if ext == "json" {
-                    test_json_file(entry.path().to_str().unwrap());
-                }
+// m a -> (a -> m b) -> m b
+fn test_json_dir(dir: &Path) -> io::Result<()> {
+    for e in dir.read_dir()? {
+        let entry = e?;
+        let path = entry.path();
+        if let Some(ext) = path.extension() {
+            if ext != "json" {
+                continue;
             }
+            let _ = test_json_file(&path);
         }
     }
+    Ok(())
 }
 
-fn test_json_file(file: &str) {
-    print!("{}: ", file);
-    let content = fs::read_to_string(file).unwrap();
+fn test_json_file(path: &Path) {
+    let file = path.file_name().unwrap().to_str().unwrap();
+    let content = fs::read_to_string(path).unwrap();
     let start = time::Instant::now();
     let parsed = Jzon::parse(content.as_bytes());
-    let end = time::Instant::now();
-    print!(
-        "{}, cost: {:?}\n",
-        if parsed.is_ok() { "pass" } else { "FAIL" },
-        end - start
+    let cost = start.elapsed();
+    let size = content.len();
+    let passed = if parsed.is_ok() {
+        PASSED_MARK
+    } else {
+        FAILED_MARK
+    };
+    print_table_line(file, passed, &size_str(size), &format!("{:.3?}", cost));
+}
+
+fn size_str(len: usize) -> String {
+    let mut size: f64 = len as f64;
+    let mut e = 0;
+    while size > 1024.0 {
+        size /= 1024.0;
+        e += 1;
+    }
+
+    format!("{:>4.1}{}", size, UNITS[e])
+}
+
+fn print_table_line(file: &str, pass: &str, size: &str, cost: &str) {
+    let len = PASSED_MARK.len();
+    let (file_len, pass_len, size_len, cost_len) = (19, len, 6, 9);
+    println!(
+        "| {:<file_len$} | {:^pass_len$} | {:>size_len$} | {:>cost_len$} |",
+        file,
+        pass,
+        size,
+        cost,
+        file_len = file_len,
+        pass_len = pass_len,
+        size_len = size_len,
+        cost_len = cost_len,
+    );
+}
+
+fn print_table_header() {
+    let len = PASSED_MARK.len();
+    let (file_len, pass_len, size_len, cost_len) = (19, len, 6, 9);
+    print_table_line("file", "passed", "size", "cost");
+    print_table_line(
+        &"-".repeat(file_len),
+        &"-".repeat(pass_len),
+        &"-".repeat(size_len),
+        &"-".repeat(cost_len),
     );
 }
