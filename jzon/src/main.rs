@@ -4,6 +4,7 @@ use jzon::jzon::Jzon;
 use std::fs;
 use std::io;
 use std::path::Path;
+use std::string;
 use std::time;
 
 const UNITS: [&str; 6] = ["B", "K", "M", "G", "T", "P"];
@@ -56,7 +57,8 @@ fn test_json_file(path: &Path) {
     let parsed = Jzon::parse(content.as_bytes());
     let cost = start.elapsed();
     let size = content.len();
-    let passed = if parsed.is_ok() {
+    let should_fail = file.starts_with("fail");
+    let passed = if parsed.is_ok() && !should_fail || parsed.is_err() && should_fail {
         PASSED_MARK
     } else {
         FAILED_MARK
