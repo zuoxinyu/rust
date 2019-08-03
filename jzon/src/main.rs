@@ -14,19 +14,20 @@ fn main() {
     print!(r#"## Jzon
 A simple and ease-of-use JSON library in Rust.
 
+## TODO";
+- TODO: impl Display trait with more options
+- TODO: impl Index trait with lifetime
+- TODO: impl Iterator trait
+- TODO: impl Deref trait
+- TODO: impl From trait
+- FIXME: float point number parsing precision
+
 ## Sample Results
 Sample files from [JSON\_checker](http://www.json.org/JSON\_checker/).
 P.S.: `fail01.json` is excluded as it is relaxed in RFC7159. `fail18.json` is excluded as depth of JSON is not specified.
-"#);
-    println!("\n## TODO");
-    println!("- TODO: impl Display trait with more options");
-    println!("- TODO: impl Index trait with lifetime");
-    println!("- TODO: impl Iterator trait");
-    println!("- TODO: impl Deref trait");
-    println!("- TODO: impl From trait");
-    println!("- FIXME: float point number parsing precision");
 
-    println!("\n### Roundtrip");
+### Roundtrip
+"#);
     print_table_header();
     let _ = test_json_dir(&Path::new("data/roundtrip"));
 
