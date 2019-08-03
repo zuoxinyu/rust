@@ -32,14 +32,17 @@ P.S.: `fail01.json` is excluded as it is relaxed in RFC7159. `fail18.json` is ex
     test_json_file(&Path::new("data/canada.json"));
     test_json_file(&Path::new("data/twitter.json"));
     test_json_file(&Path::new("data/citm_catalog.json"));
+
+    let content = fs::read_to_string("data/jsonchecker/pass01.json").unwrap();
+    let jz = Jzon::parse(content.as_bytes()).unwrap();
+    println!("{}", jz.value);
 }
 
 // m a -> (a -> m b) -> m b
 fn test_json_dir(dir: &Path) -> io::Result<()> {
-    let mut entries :Vec<_> = dir.read_dir()?.filter_map(|e| e.ok()).collect();
+    let mut entries: Vec<_> = dir.read_dir()?.filter_map(|e| e.ok()).collect();
     entries.sort_by_key(|file| file.path());
-    for e in entries {
-        let entry = e;
+    for entry in entries {
         let path = entry.path();
         if let Some(ext) = path.extension() {
             if ext != "json" {

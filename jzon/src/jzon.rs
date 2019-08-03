@@ -2,6 +2,7 @@ use std::char;
 use std::collections::HashMap;
 use std::convert::From;
 use std::f64;
+use std::fmt;
 use std::str;
 use std::string::String;
 use std::vec::Vec;
@@ -67,6 +68,40 @@ pub enum Jzon {
     Double(f64),
     Bool(bool),
     Null,
+}
+
+impl fmt::Display for Jzon {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let concat = |init: String, s: String| {
+            if init.is_empty() {
+                s.clone()
+            } else {
+                init.clone() + "," + &s
+            }
+        };
+        match self {
+            Jzon::Null => write!(f, "null"),
+            Jzon::Bool(true) => write!(f, "true"),
+            Jzon::Bool(false) => write!(f, "false"),
+            Jzon::Double(v) => write!(f, "{}", v),
+            Jzon::Integer(v) => write!(f, "{}", v),
+            Jzon::String(v) => write!(f, "\"{}\"", v),
+            Jzon::Object(map) => write!(
+                f,
+                "{{{}}}",
+                map.iter()
+                    .map(|(k, v)| format!("\"{}\":{}", k, v))
+                    .fold("".to_owned(), concat)
+            ),
+            Jzon::Array(vec) => write!(
+                f,
+                "[{}]",
+                vec.iter()
+                    .map(|v| format!("{}", v))
+                    .fold("".to_owned(), concat)
+            ),
+        }
+    }
 }
 
 macro_rules! impl_parial_eq_for_jzon {
@@ -658,5 +693,11 @@ mod tests {
         assert_eq!(state.value, 0xffffu32);
 
         assert!(Jzon::parse_hex4("fhff".as_bytes()).is_err());
+    }
+
+    #[test]
+    fn fmt() {
+        let jz = Jzon::parse(JSON.as_bytes()).unwrap();
+        print!("value is {}", jz.value);
     }
 }
