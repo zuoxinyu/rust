@@ -18,7 +18,7 @@ A simple and ease-of-use JSON library in Rust.
 Sample files from [JSON\_checker](http://www.json.org/JSON\_checker/).
 P.S.: `fail01.json` is excluded as it is relaxed in RFC7159. `fail18.json` is excluded as depth of JSON is not specified.
 "#);
-    println!("## TODO");
+    println!("\n## TODO");
     println!("- TODO: impl Display trait with more options");
     println!("- TODO: impl Index trait with lifetime");
     println!("- TODO: impl Iterator trait");
