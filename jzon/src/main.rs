@@ -97,9 +97,9 @@ fn print_table_header() {
     let (file_len, pass_len, size_len, cost_len) = (19, len, 6, 9);
     print_table_line("file", "passed", "size", "cost");
     print_table_line(
-        &"-".repeat(file_len),
-        &"-".repeat(pass_len),
-        &"-".repeat(size_len),
-        &"-".repeat(cost_len),
+        &format!(":{}", "-".repeat(file_len - 1)),
+        &format!(":{}:", "-".repeat(pass_len - 2)),
+        &format!("{}:", "-".repeat(size_len - 1)),
+        &format!("{}:", "-".repeat(cost_len - 1)),
     );
 }
