@@ -4,7 +4,6 @@ use jzon::jzon::Jzon;
 use std::fs;
 use std::io;
 use std::path::Path;
-use std::string;
 use std::time;
 
 const UNITS: [&str; 6] = ["B", "K", "M", "G", "T", "P"];
