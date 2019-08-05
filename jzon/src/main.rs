@@ -63,7 +63,7 @@ fn test_json_file(path: &Path) {
     let file = path.file_name().unwrap().to_str().unwrap();
     let content = fs::read_to_string(path).unwrap();
     let start = time::Instant::now();
-    let parsed = Jzon::parse(content.as_bytes());
+    let parsed = Jzon::parse(content.into_bytes());
     let cost = start.elapsed();
     let size = content.len();
     let should_fail = file.starts_with("fail");

@@ -7,25 +7,27 @@ use std::io;
 fn main() -> io::Result<()> {
     let mut args = env::args();
     if args.len() < 2 {
-        let exe = env::current_exe()?;
-        println!(
-            "usage: {} <text> | -f <file> ",
-            exe.file_stem().unwrap().to_str().unwrap()
-        );
-        return Ok(());
+        return print_usage();
     }
 
     let mut text = args.nth(1).unwrap();
     if text == "-f" {
-        if let Some(file_name) = args.nth(2) {
-            text = fs::read_to_string(file_name)?;
+        match args.next() {
+            Some(file_name) => text = fs::read_to_string(file_name)?,
+            None => return print_usage(),
         }
     }
 
-    match Jzon::parse(text.as_bytes()) {
+    match Jzon::parse(&text.into_bytes()) {
         Ok(jz) => println!("{}", jz),
         Err(e) => println!("{:?}", e),
     }
 
+    Ok(())
+}
+
+fn print_usage() -> io::Result<()> {
+    let exe = env::current_exe()?;
+    println!("usage: {:?} <text> | -f <file> ", exe.file_stem().unwrap());
     Ok(())
 }
