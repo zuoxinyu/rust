@@ -21,6 +21,7 @@ A simple and ease-of-use JSON library in Rust.
 - TODO: impl Deref trait
 - TODO: impl From trait
 - FIXME: float point number parsing precision
+- FIXME: avoid integer overflow
 
 ## Sample Results
 Sample files from [JSON\_checker](http://www.json.org/JSON\_checker/).
