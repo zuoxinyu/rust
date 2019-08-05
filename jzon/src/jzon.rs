@@ -353,14 +353,18 @@ impl Jzon {
     }
 
     fn parse_string_literal(bytes: &[u8]) -> ParsingResult<String> {
-        let mut value = String::new();
+        let mut value: Vec<u8> = vec![];
         let mut consumed = 1;
+        let mut encode_buf = [0; 4];
         loop {
             match bytes.iter().nth(consumed) {
                 Some(ch) => match *ch {
                     b'\\' => {
                         let escaped = Jzon::parse_escaped(&bytes[consumed..])?;
-                        value.push(escaped.value);
+                        let s = escaped.value.encode_utf8(&mut encode_buf);
+                        for i in 0..s.len() {
+                            value.push(encode_buf[i]);
+                        }
                         consumed += escaped.consumed;
                     }
                     b'\"' => {
@@ -372,7 +376,7 @@ impl Jzon {
                         return Err(ExpectNoneControl);
                     }
                     ch => {
-                        value.push(ch as char);
+                        value.push(ch);
                         consumed += 1;
                     }
                 },
@@ -380,7 +384,10 @@ impl Jzon {
             }
         }
 
-        Ok(State { value, consumed })
+        match String::from_utf8(value) {
+            Ok(value) => Ok(State { value, consumed }),
+            Err(_) => Err(ExpectCodePoint),
+        }
     }
 
     fn parse_escaped(bytes: &[u8]) -> ParsingResult<char> {
@@ -677,6 +684,8 @@ mod tests {
     fn parse_string() {
         let jz = Jzon::parse_string(r#""a string literal","#.as_bytes());
         assert_eq!("a string literal", jz.unwrap().value);
+        let jz = Jzon::parse_string(r#""こにちわ　世界！","#.as_bytes());
+        assert_eq!("こにちわ　世界！", jz.unwrap().value);
     }
 
     #[test]

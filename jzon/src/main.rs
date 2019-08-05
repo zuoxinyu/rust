@@ -63,9 +63,9 @@ fn test_json_file(path: &Path) {
     let file = path.file_name().unwrap().to_str().unwrap();
     let content = fs::read_to_string(path).unwrap();
     let start = time::Instant::now();
-    let parsed = Jzon::parse(content.into_bytes());
-    let cost = start.elapsed();
     let size = content.len();
+    let parsed = Jzon::parse(&content.into_bytes());
+    let cost = start.elapsed();
     let should_fail = file.starts_with("fail");
     let passed = if parsed.is_ok() && !should_fail || parsed.is_err() && should_fail {
         PASSED_MARK
