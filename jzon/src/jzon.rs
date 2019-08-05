@@ -489,35 +489,64 @@ impl Jzon {
     }
 }
 
+impl Jzon {
+    pub fn stringify(&self) -> String {
+        format!("{}", self)
+    }
+
+    pub fn beautify(&self) -> String {
+        format!("{:#}", self)
+    }
+}
+
+fn concat(init: String, s: String) -> String {
+    if init.is_empty() {
+        s.clone()
+    } else {
+        init.clone() + "," + &s
+    }
+}
+
+fn concat_beautifully(init: String, s: String) -> String {
+    if init.is_empty() {
+        s.clone()
+    } else {
+        init.clone() + ", " + &s
+    }
+}
+
 impl fmt::Display for Jzon {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let concat = |init: String, s: String| {
-            if init.is_empty() {
-                s.clone()
-            } else {
-                init.clone() + "," + &s
-            }
-        };
+        let concat_fn: fn(String, String) -> String;
+        let fmt_kv_fn: fn((&String, &Jzon)) -> String;
+        let fmt_elem_fn: fn(&Jzon) -> String;
+
+        if f.alternate() {
+            fmt_kv_fn = |(k, v)| format!("\n\"{}\": {:#}", k, v);
+            fmt_elem_fn = |v| format!("{:#}", v);
+            concat_fn = concat_beautifully;
+        } else {
+            fmt_kv_fn = |(k, v)| format!(r#""{}":{}"#, k, v);
+            fmt_elem_fn = |v| format!("{}", v);
+            concat_fn = concat;
+        }
+
         match self {
             Jzon::Null => write!(f, "null"),
             Jzon::Bool(true) => write!(f, "true"),
             Jzon::Bool(false) => write!(f, "false"),
             Jzon::Double(v) => write!(f, "{}", v),
             Jzon::Integer(v) => write!(f, "{}", v),
-            Jzon::String(v) => write!(f, "\"{}\"", v),
+            Jzon::String(v) => write!(f, "\"{}\"", v), // TODO: escaping
             Jzon::Object(map) => write!(
                 f,
                 "{{{}}}",
-                map.iter()
-                    .map(|(k, v)| format!("\"{}\":{}", k, v))
-                    .fold("".to_owned(), concat)
+                map.iter().map(fmt_kv_fn).fold("".to_owned(), concat_fn)
             ),
             Jzon::Array(vec) => write!(
                 f,
                 "[{}]",
-                vec.iter()
-                    .map(|v| format!("{}", v))
-                    .fold("".to_owned(), concat)
+                vec.iter().map(fmt_elem_fn).fold("".to_owned(), concat_fn)
             ),
         }
     }

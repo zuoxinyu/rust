@@ -19,7 +19,7 @@ fn main() -> io::Result<()> {
     }
 
     match Jzon::parse(&text.into_bytes()) {
-        Ok(jz) => println!("{}", jz),
+        Ok(jz) => println!("{:#}", jz),
         Err(e) => println!("{:?}", e),
     }
 
