@@ -31,9 +31,9 @@ pub enum ParseErr {
 }
 
 #[derive(Debug)]
-pub struct State<T> {
-    pub value: T,
-    pub consumed: usize,
+struct State<T> {
+    value: T,
+    consumed: usize,
 }
 
 type ParsingResult<T> = result::Result<State<T>, ParseErr>;
@@ -73,6 +73,7 @@ pub enum Jzon {
     Double(f64),
     Bool(bool),
     Null,
+    Nil,
 }
 
 #[derive(Debug)]
@@ -499,45 +500,83 @@ impl Jzon {
     }
 }
 
-fn concat(init: String, s: String) -> String {
-    if init.is_empty() {
-        s.clone()
-    } else {
-        init.clone() + "," + &s
-    }
-}
-
-fn concat_beautifully(init: String, s: String) -> String {
-    if init.is_empty() {
-        s.clone()
-    } else {
-        init.clone() + ", " + &s
-    }
-}
-
 impl fmt::Display for Jzon {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let concat_fn: fn(String, String) -> String;
-        let fmt_kv_fn: fn((&String, &Jzon)) -> String;
-        let fmt_elem_fn: fn(&Jzon) -> String;
+        fn escape(s: &str) -> String {
+            let mut escaped = String::new();
+            for ch in s.bytes() {
+                match ch {
+                    8u8 => {
+                        escaped.push('\\');
+                        escaped.push('b')
+                    }
+                    12u8 => {
+                        escaped.push('\\');
+                        escaped.push('f')
+                    }
+                    b'\t' => {
+                        escaped.push('\\');
+                        escaped.push('t')
+                    }
+                    b'\n' => {
+                        escaped.push('\\');
+                        escaped.push('n')
+                    }
+                    b'\r' => {
+                        escaped.push('\\');
+                        escaped.push('r')
+                    }
+                    b'\\' => {
+                        escaped.push('\\');
+                        escaped.push('\\')
+                    }
+                    b'/' => {
+                        escaped.push('\\');
+                        escaped.push('/')
+                    }
+                    b'"' => {
+                        escaped.push('\\');
+                        escaped.push('"')
+                    }
 
-        if f.alternate() {
-            fmt_kv_fn = |(k, v)| format!("\n\"{}\": {:#}", k, v);
-            fmt_elem_fn = |v| format!("{:#}", v);
-            concat_fn = concat_beautifully;
-        } else {
-            fmt_kv_fn = |(k, v)| format!(r#""{}":{}"#, k, v);
-            fmt_elem_fn = |v| format!("{}", v);
-            concat_fn = concat;
+                    _ => escaped.push(ch as char),
+                }
+            }
+            escaped
         }
 
+        let alt = f.alternate();
+
+        let fmt_kv_fn = |(k, v)| {
+            if alt {
+                format!("\n{s:indent$}\"{}\": {:#}", k, v, indent = 4, s = " ")
+            } else {
+                format!(r#""{}":{}"#, k, v)
+            }
+        };
+        let concat_fn = |init: String, s: String| {
+            if init.is_empty() {
+                s.clone()
+            } else {
+                init.clone() + if alt { ", " } else { "," } + &s
+            }
+        };
+        let fmt_elem_fn = |v| {
+            if alt {
+                format!("{:#}", v)
+            } else {
+                format!("{}", v)
+            }
+        };
+
         match self {
+            Jzon::Nil => write!(f, ""),
             Jzon::Null => write!(f, "null"),
             Jzon::Bool(true) => write!(f, "true"),
             Jzon::Bool(false) => write!(f, "false"),
             Jzon::Double(v) => write!(f, "{}", v),
             Jzon::Integer(v) => write!(f, "{}", v),
-            Jzon::String(v) => write!(f, "\"{}\"", v), // TODO: escaping
+            Jzon::String(v) => write!(f, "\"{}\"", escape(v)), // TODO: escaping
             Jzon::Object(map) => write!(
                 f,
                 "{{{}}}",
@@ -607,7 +646,7 @@ impl ops::Index<usize> for Jzon {
     fn index(&self, idx: usize) -> &Self::Output {
         match self {
             Jzon::Array(vec) => &vec[idx],
-            _ => &Jzon::VALUE_NULL,
+            _ => &Jzon::Nil,
         }
     }
 }
@@ -617,7 +656,7 @@ impl ops::Index<&str> for Jzon {
     fn index(&self, idx: &str) -> &Self::Output {
         match self {
             Jzon::Object(map) => &map[idx],
-            _ => &Jzon::VALUE_NULL,
+            _ => &Jzon::Nil,
         }
     }
 }
@@ -787,5 +826,13 @@ mod tests {
     fn fmt() {
         let jz = Jzon::parse(JSON.as_bytes()).unwrap();
         print!("value is {}", jz);
+    }
+
+    #[test]
+    fn index() {
+        let jz = Jzon::parse(JSON.as_bytes()).unwrap();
+        assert_eq!(jz["object"]["nest-key"], "nest value");
+        assert_ne!(jz["object"]["nest-key"]["not-exist"], "nest value");
+        assert_ne!(jz["object"]["nest-key"]["not-exist"][0], "nest value");
     }
 }
