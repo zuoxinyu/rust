@@ -10,6 +10,17 @@ use std::str;
 use std::string::String;
 use std::vec::Vec;
 
+static ASCII: [u8; 128] = [
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x62, 0x74, 0x6E, 0x00, 0x66, 0x72, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x22, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2F,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x5C, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x0C, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0A, 0x00,
+    0x00, 0x00, 0x0D, 0x00, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+];
+
 #[derive(Debug)]
 pub enum ParseErr {
     ExpectPair,
@@ -395,12 +406,12 @@ impl Jzon {
         let consumed = 2;
         let mut it = bytes[1..].iter();
         let value = match it.next() {
-            Some(b'b') => 8 as char,
+            Some(b'b') => 0x08 as char,
+            Some(b'f') => 0x0C as char,
             Some(b't') => '\t',
-            Some(b'f') => 12 as char,
             Some(b'n') => '\n',
             Some(b'r') => '\r',
-            Some(b'"') => '\"',
+            Some(b'"') => '"',
             Some(b'/') => '/',
             Some(b'\\') => '\\',
             Some(b'u') => return Jzon::parse_unicode(&bytes),
@@ -490,6 +501,23 @@ impl Jzon {
     }
 }
 
+/*
+const BLACK: &str = "\033[0;30m";
+const RED: &str = "\033[0;31m";
+const GREEN: &str = "\033[0;32m";
+const YELLOW: &str = "\033[0;33m";
+const BLUE: &str = "\033[0;34m";
+const PURPLE: &str = "\033[0;35m";
+const SKY: &str = "\033[0;36m";
+const WHITE: &str = "\033[0;37m";
+const RESET: &str = "\033[0m";
+const HIGHLIGHT: &str = "\033[1m";
+const UNDERLINE: &str = "\033[4m";
+const BLINK: &str = "\033[5m";
+const REVERSE: &str = "\033[7m";
+const FADEOUT: &str = "\033[8m";
+*/
+
 impl Jzon {
     pub fn stringify(&self) -> String {
         format!("{}", self)
@@ -503,71 +531,18 @@ impl Jzon {
 impl fmt::Display for Jzon {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fn escape(s: &str) -> String {
-            let mut escaped = String::new();
+            let mut escaped: Vec<u8> = vec![];
             for ch in s.bytes() {
                 match ch {
-                    8u8 => {
-                        escaped.push('\\');
-                        escaped.push('b')
+                    0x08 | 0x09 | 0x0A | 0x0C | 0x0D | 0x22 | 0x2F | 0x5C => {
+                        escaped.push(b'\\');
+                        escaped.push(ASCII[ch as usize]);
                     }
-                    12u8 => {
-                        escaped.push('\\');
-                        escaped.push('f')
-                    }
-                    b'\t' => {
-                        escaped.push('\\');
-                        escaped.push('t')
-                    }
-                    b'\n' => {
-                        escaped.push('\\');
-                        escaped.push('n')
-                    }
-                    b'\r' => {
-                        escaped.push('\\');
-                        escaped.push('r')
-                    }
-                    b'\\' => {
-                        escaped.push('\\');
-                        escaped.push('\\')
-                    }
-                    b'/' => {
-                        escaped.push('\\');
-                        escaped.push('/')
-                    }
-                    b'"' => {
-                        escaped.push('\\');
-                        escaped.push('"')
-                    }
-
-                    _ => escaped.push(ch as char),
+                    _ => escaped.push(ch),
                 }
             }
-            escaped
+            String::from_utf8(escaped).unwrap()
         }
-
-        let alt = f.alternate();
-
-        let fmt_kv_fn = |(k, v)| {
-            if alt {
-                format!("\n{s:indent$}\"{}\": {:#}", k, v, indent = 4, s = " ")
-            } else {
-                format!(r#""{}":{}"#, k, v)
-            }
-        };
-        let concat_fn = |init: String, s: String| {
-            if init.is_empty() {
-                s.clone()
-            } else {
-                init.clone() + if alt { ", " } else { "," } + &s
-            }
-        };
-        let fmt_elem_fn = |v| {
-            if alt {
-                format!("{:#}", v)
-            } else {
-                format!("{}", v)
-            }
-        };
 
         match self {
             Jzon::Nil => write!(f, ""),
@@ -576,16 +551,22 @@ impl fmt::Display for Jzon {
             Jzon::Bool(false) => write!(f, "false"),
             Jzon::Double(v) => write!(f, "{}", v),
             Jzon::Integer(v) => write!(f, "{}", v),
-            Jzon::String(v) => write!(f, "\"{}\"", escape(v)), // TODO: escaping
+            Jzon::String(v) => write!(f, "\"{}\"", escape(&v)), // TODO: escaping
             Jzon::Object(map) => write!(
                 f,
                 "{{{}}}",
-                map.iter().map(fmt_kv_fn).fold("".to_owned(), concat_fn)
+                map.iter()
+                    .map(|(k, v)| format!(r#""{}":{}"#, k, v))
+                    .collect::<Vec<_>>()
+                    .join(",")
             ),
             Jzon::Array(vec) => write!(
                 f,
                 "[{}]",
-                vec.iter().map(fmt_elem_fn).fold("".to_owned(), concat_fn)
+                vec.iter()
+                    .map(|v| format!("{}", v))
+                    .collect::<Vec<_>>()
+                    .join(",")
             ),
         }
     }
@@ -824,8 +805,8 @@ mod tests {
 
     #[test]
     fn fmt() {
-        let jz = Jzon::parse(JSON.as_bytes()).unwrap();
-        print!("value is {}", jz);
+        let jz = Jzon::parse("\"\\r\\n\\t\\f\\b\"".as_bytes()).unwrap();
+        assert_eq!("\"\\r\\n\\t\\f\\b\"", format!("{}", jz));
     }
 
     #[test]
