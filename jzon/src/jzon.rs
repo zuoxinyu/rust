@@ -57,17 +57,17 @@ impl From<std::option::NoneError> for ParseErr {
     }
 }
 
-const START: u16 = 2 << 0; // start
-const ZERO: u16 = 2 << 1; // 0
-const DOT: u16 = 2 << 2; // .
-const DIGIT0: u16 = 2 << 3; // 0-9 after _nNoneZero
-const DIGIT1: u16 = 2 << 4; // 0-9 after _nDot
-const DIGIT2: u16 = 2 << 5; // 0-9 after _nExp or _nPlus or _Minus
-const NONE_ZERO: u16 = 2 << 6; // 1-9
-const EXP: u16 = 2 << 7; // e E
-const PLUS: u16 = 2 << 8; // +
-const MINUS: u16 = 2 << 9; // -
-const NEG: u16 = 2 << 10; // -
+const START     : u16 = 2 << 0; // start
+const ZERO      : u16 = 2 << 1; // 0
+const DOT       : u16 = 2 << 2; // .
+const DIGIT0    : u16 = 2 << 3; // 0-9 after _nNoneZero
+const DIGIT1    : u16 = 2 << 4; // 0-9 after _nDot
+const DIGIT2    : u16 = 2 << 5; // 0-9 after _nExp or _nPlus or _Minus
+const NONE_ZERO : u16 = 2 << 6; // 1-9
+const EXP       : u16 = 2 << 7; // e E
+const PLUS      : u16 = 2 << 8; // +
+const MINUS     : u16 = 2 << 9; // -
+const NEG       : u16 = 2 << 10; // -
 
 macro_rules! matches {
     ($s:expr, $e:expr) => {{
@@ -84,7 +84,6 @@ pub enum Jzon {
     Double(f64),
     Bool(bool),
     Null,
-    Nil,
 }
 
 #[derive(Debug)]
@@ -545,7 +544,6 @@ impl fmt::Display for Jzon {
         }
 
         match self {
-            Jzon::Nil => write!(f, ""),
             Jzon::Null => write!(f, "null"),
             Jzon::Bool(true) => write!(f, "true"),
             Jzon::Bool(false) => write!(f, "false"),
@@ -627,7 +625,7 @@ impl ops::Index<usize> for Jzon {
     fn index(&self, idx: usize) -> &Self::Output {
         match self {
             Jzon::Array(vec) => &vec[idx],
-            _ => &Jzon::Nil,
+            _ => panic!("invalid index")
         }
     }
 }
@@ -637,7 +635,7 @@ impl ops::Index<&str> for Jzon {
     fn index(&self, idx: &str) -> &Self::Output {
         match self {
             Jzon::Object(map) => &map[idx],
-            _ => &Jzon::Nil,
+            _ => panic!("invalid index")
         }
     }
 }
@@ -810,6 +808,7 @@ mod tests {
     }
 
     #[test]
+    #[should_panic]
     fn index() {
         let jz = Jzon::parse(JSON.as_bytes()).unwrap();
         assert_eq!(jz["object"]["nest-key"], "nest value");
