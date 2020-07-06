@@ -2,7 +2,7 @@ use x11rb::protocol::xproto::*;
 
 pub const TITLEBAR_HEIGHT: u16 = 20;
 /// The state of a single window that we manage
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct WindowState {
     pub window: Window,
     pub frame_window: Window,

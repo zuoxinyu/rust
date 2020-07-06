@@ -26,6 +26,7 @@ pub struct WMState<'a, C: Connection> {
     pending_expose: HashSet<Window>,
     wm_protocols: Atom,
     wm_delete_window: Atom,
+    exit: bool,
 }
 
 impl<'a, C: Connection> WMState<'a, C> {
@@ -55,7 +56,22 @@ impl<'a, C: Connection> WMState<'a, C> {
             pending_expose: HashSet::default(),
             wm_protocols: wm_protocols.reply()?.atom,
             wm_delete_window: wm_delete_window.reply()?.atom,
+            exit: false,
         })
+    }
+
+    pub fn should_exit(&self) -> bool {
+        self.exit
+    }
+
+    pub fn destroy(&self) {
+        let screen = &self.conn.setup().roots[self.screen_num];
+        for it in self.windows.iter() {
+            self.conn
+                .reparent_window(it.window, screen.root, it.x, it.y)
+                .unwrap();
+            self.conn.destroy_window(it.frame_window).unwrap();
+        }
     }
 
     /// Scan for already existing windows and manage them
@@ -69,25 +85,24 @@ impl<'a, C: Connection> WMState<'a, C> {
         for win in tree_reply.children {
             let attr = self.conn.get_window_attributes(win)?;
             let geom = self.conn.get_geometry(win)?;
+            let name = self.get_window_name(win)?;
 
-            let atom = self.conn.intern_atom(false, b"WM_NAME")?;
-            let type_ = self.conn.intern_atom(false, b"STRING")?;
-            let prop = self.conn.get_property(false, win, atom.reply()?.atom, type_.reply()?.atom, 0, 0)?;
-
-            cookies.push((win, attr, geom, prop));
+            cookies.push((win, attr, geom, name));
         }
         // Get the replies and manage windows
         for (win, attr, geom, prop) in cookies {
-            let (attr, geom, prop) = (attr.reply(), geom.reply(), prop.reply());
+            let (attr, geom) = (attr.reply(), geom.reply());
             if attr.is_err() || geom.is_err() {
-                // Just skip this window
                 continue;
             }
 
-            let (attr, geom, prop) = (attr.unwrap(), geom.unwrap(), prop.unwrap());
-            println!("{:?}, {:?}, {:?}, {:?}", attr.override_redirect, attr.map_state, attr.class, prop.value);
+            let (attr, geom) = (attr.unwrap(), geom.unwrap());
 
             if !attr.override_redirect && attr.map_state != MapState::Unmapped {
+                println!(
+                    "{:?}, {:?}, {:?}, {:?}",
+                    attr.override_redirect, attr.map_state, attr.class, prop
+                );
                 self.manage_window(win, &geom)?;
             }
         }
@@ -122,6 +137,7 @@ impl<'a, C: Connection> WMState<'a, C> {
             Event::ButtonPress(event) => self.handle_button_press(event)?,
             Event::ButtonRelease(event) => self.handle_button_release(event)?,
             Event::MotionNotify(event) => self.handle_mouse_move(event)?,
+            Event::KeyPress(event) => self.handle_key_press(event)?,
             _ => {}
         }
         Ok(())
@@ -144,9 +160,16 @@ impl<'a, C: Connection> WMState<'a, C> {
                     | EventMask::SubstructureNotify
                     | EventMask::ButtonPress
                     | EventMask::ButtonRelease
-                    | EventMask::PointerMotion,
+                    | EventMask::PointerMotion
+                    | EventMask::EnterWindow
+                    | EventMask::LeaveWindow
+                    | EventMask::Exposure
+                    | EventMask::KeyPress
+                    | EventMask::KeyRelease
+                    | EventMask::PropertyChange,
             )
             .background_pixel(screen.white_pixel);
+
         self.conn.create_window(
             COPY_DEPTH_FROM_PARENT,
             frame_win,
@@ -161,12 +184,12 @@ impl<'a, C: Connection> WMState<'a, C> {
             &win_aux,
         )?;
 
-        self.conn
-            .reparent_window(win, frame_win, 0, TITLEBAR_HEIGHT as _)?;
+        self.conn.reparent_window(win, frame_win, 0, 20)?;
         self.conn.map_window(win)?;
         self.conn.map_window(frame_win)?;
 
         self.windows.push(WindowState::new(win, frame_win, geom));
+
         Ok(())
     }
 
@@ -228,6 +251,20 @@ impl<'a, C: Connection> WMState<'a, C> {
             .find(|state| state.window == win || state.frame_window == win)
     }
 
+    fn get_window_name(&self, win: Window) -> Result<String, ReplyError> {
+        let prop = self.conn.get_property(
+            false,
+            win,
+            AtomEnum::WM_NAME,
+            AtomEnum::STRING,
+            0,
+            std::u32::MAX,
+        )?;
+        let value = prop.reply()?.value;
+        let name = String::from_utf8(value).unwrap();
+        Ok(name)
+    }
+
     fn handle_unmap_notify(&mut self, event: UnmapNotifyEvent) -> Result<(), ReplyError> {
         let conn = self.conn;
         self.windows.retain(|state| {
@@ -241,9 +278,6 @@ impl<'a, C: Connection> WMState<'a, C> {
     }
 
     fn handle_configure_request(&mut self, event: ConfigureRequestEvent) -> Result<(), ReplyError> {
-        if let Some(state) = self.find_window_by_id_mut(event.window) {
-            let _ = state;
-        }
         let mut aux = ConfigureWindowAux::default();
         if event.value_mask & u16::from(ConfigWindow::X) != 0 {
             aux = aux.x(i32::from(event.x));
@@ -282,6 +316,11 @@ impl<'a, C: Connection> WMState<'a, C> {
         };
         self.conn
             .set_input_focus(InputFocus::Parent, window, CURRENT_TIME)?;
+
+        // put above
+        let mut aux = ConfigureWindowAux::default();
+        aux.stack_mode = Some(StackMode::Above);
+        self.conn.configure_window(event.event, &aux)?;
         Ok(())
     }
 
@@ -320,10 +359,7 @@ impl<'a, C: Connection> WMState<'a, C> {
         Ok(())
     }
 
-    fn handle_mouse_move(
-        &mut self,
-        event: x11rb::protocol::xproto::MotionNotifyEvent,
-    ) -> Result<(), ReplyError> {
+    fn handle_mouse_move(&mut self, event: MotionNotifyEvent) -> Result<(), ReplyError> {
         if let Some(state) = self.find_window_by_id(event.event) {
             if state.pressing {
                 let x = state.x + event.root_x - state.pressing_x;
@@ -333,14 +369,21 @@ impl<'a, C: Connection> WMState<'a, C> {
                 aux.y = Some(y as i32);
                 self.conn.configure_window(state.frame_window, &aux)?;
 
-                if let Some(mutstate) = self.find_window_by_id_mut(event.event) {
-                    mutstate.x = x;
-                    mutstate.y = y;
-                    mutstate.pressing_x = event.root_x;
-                    mutstate.pressing_y = event.root_y;
-                    println!("current window: {:?}", mutstate);
+                if let Some(state) = self.find_window_by_id_mut(event.event) {
+                    state.x = x;
+                    state.y = y;
+                    state.pressing_x = event.root_x;
+                    state.pressing_y = event.root_y;
+                    println!("current window: {:?}", state);
                 }
             }
+        }
+        Ok(())
+    }
+
+    fn handle_key_press(&mut self, event: KeyPressEvent) -> Result<(), ReplyError> {
+        if event.detail == 24 {
+            self.exit = true;
         }
         Ok(())
     }
@@ -349,7 +392,13 @@ impl<'a, C: Connection> WMState<'a, C> {
 pub fn become_wm<C: Connection>(conn: &C, screen: &Screen) -> Result<(), ReplyError> {
     // Try to become the window manager. This causes an error if there is already another WM.
     let change = ChangeWindowAttributesAux::default().event_mask(
-        EventMask::SubstructureRedirect | EventMask::SubstructureNotify | EventMask::EnterWindow,
+        EventMask::SubstructureRedirect
+            | EventMask::SubstructureNotify
+            | EventMask::EnterWindow
+            | EventMask::ButtonPress
+            | EventMask::ButtonRelease
+            | EventMask::KeyPress
+            | EventMask::KeyRelease,
     );
     let res = conn.change_window_attributes(screen.root, &change)?.check();
     if let Err(ReplyError::X11Error(Error::Access(_))) = res {

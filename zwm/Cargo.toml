@@ -8,3 +8,4 @@ edition = "2018"
 
 [dependencies]
 x11rb = "0.6.0"
+ctrlc = "3.1.4"
