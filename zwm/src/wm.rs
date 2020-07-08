@@ -13,12 +13,13 @@ use x11rb::protocol::{Error, Event};
 use x11rb::{COPY_DEPTH_FROM_PARENT, CURRENT_TIME};
 
 use crate::window::WindowState;
+use self::x11rb::COPY_FROM_PARENT;
 
 const TITLEBAR_HEIGHT: u16 = 20;
 
 /// The state of the full WM
 #[derive(Debug)]
-pub struct WMState<'a, C: Connection> {
+pub struct WindowManager<'a, C: Connection + ConnectionExt> {
     conn: &'a C,
     screen_num: usize,
     black_gc: Gcontext,
@@ -27,10 +28,11 @@ pub struct WMState<'a, C: Connection> {
     wm_protocols: Atom,
     wm_delete_window: Atom,
     exit: bool,
+    root: Window,
 }
 
-impl<'a, C: Connection> WMState<'a, C> {
-    pub fn new(conn: &'a C, screen_num: usize) -> Result<WMState<'a, C>, ReplyOrIdError> {
+impl<'a, C: Connection+ConnectionExt> WindowManager<'a, C> {
+    pub fn new(conn: &'a C, screen_num: usize) -> Result<WindowManager<'a, C>, ReplyOrIdError> {
         let screen = &conn.setup().roots[screen_num];
         let black_gc = conn.generate_id()?;
         let font = conn.generate_id()?;
@@ -48,7 +50,7 @@ impl<'a, C: Connection> WMState<'a, C> {
         let wm_protocols = conn.intern_atom(false, b"WM_PROTOCOLS")?;
         let wm_delete_window = conn.intern_atom(false, b"WM_DELETE_WINDOW")?;
 
-        Ok(WMState {
+        Ok(WindowManager {
             conn,
             screen_num,
             black_gc,
@@ -57,6 +59,7 @@ impl<'a, C: Connection> WMState<'a, C> {
             wm_protocols: wm_protocols.reply()?.atom,
             wm_delete_window: wm_delete_window.reply()?.atom,
             exit: false,
+            root: screen.root,
         })
     }
 
@@ -65,23 +68,42 @@ impl<'a, C: Connection> WMState<'a, C> {
     }
 
     pub fn destroy(&self) {
-        let screen = &self.conn.setup().roots[self.screen_num];
         for it in self.windows.iter() {
             self.conn
-                .reparent_window(it.window, screen.root, it.x, it.y)
+                .reparent_window(it.window, self.root, it.x, it.y)
                 .unwrap();
             self.conn.destroy_window(it.frame_window).unwrap();
         }
+
+        self.conn.flush().unwrap();
     }
 
+    // Try to become the window manager. This causes an error if there is already another WM.
+    pub fn become_wm(&mut self) -> Result<(), ReplyError> {
+        let change = ChangeWindowAttributesAux::default().event_mask(
+            EventMask::SubstructureRedirect
+                | EventMask::EnterWindow
+                | EventMask::ButtonPress
+                | EventMask::ButtonRelease
+                | EventMask::KeyPress
+                | EventMask::KeyRelease,
+        );
+        let res = self.conn.change_window_attributes(self.root, &change)?.check();
+        if let Err(ReplyError::X11Error(Error::Access(_))) = res {
+            eprintln!("Another WM is already running.");
+            exit(1);
+        } else {
+            res
+        }
+    }
     /// Scan for already existing windows and manage them
     pub fn scan_windows(&mut self) -> Result<(), ReplyOrIdError> {
         // Get the already existing top-level windows.
-        let screen = &self.conn.setup().roots[self.screen_num];
-        let tree_reply = self.conn.query_tree(screen.root)?.reply()?;
+        let tree_reply = self.conn.query_tree(self.root)?.reply()?;
 
         // For each window, request its attributes and geometry *now*
         let mut cookies = Vec::with_capacity(tree_reply.children.len());
+        println!("number of exists win: {}", tree_reply.children.len());
         for win in tree_reply.children {
             let attr = self.conn.get_window_attributes(win)?;
             let geom = self.conn.get_geometry(win)?;
@@ -90,7 +112,7 @@ impl<'a, C: Connection> WMState<'a, C> {
             cookies.push((win, attr, geom, name));
         }
         // Get the replies and manage windows
-        for (win, attr, geom, prop) in cookies {
+        for (win, attr, geom, name) in cookies {
             let (attr, geom) = (attr.reply(), geom.reply());
             if attr.is_err() || geom.is_err() {
                 continue;
@@ -98,11 +120,12 @@ impl<'a, C: Connection> WMState<'a, C> {
 
             let (attr, geom) = (attr.unwrap(), geom.unwrap());
 
-            if !attr.override_redirect && attr.map_state != MapState::Unmapped {
-                println!(
-                    "{:?}, {:?}, {:?}, {:?}",
-                    attr.override_redirect, attr.map_state, attr.class, prop
-                );
+            println!(
+                "WINID: {:?}, NAME: {:?}, OVERRIDE_REDIRECT: {:?}, MAP_STATE: {:?}, CLASS: {:?}",
+                win, name, attr.override_redirect, attr.map_state, attr.class,
+            );
+
+            if !attr.override_redirect && attr.map_state == MapState::Viewable {
                 self.manage_window(win, &geom)?;
             }
         }
@@ -157,7 +180,6 @@ impl<'a, C: Connection> WMState<'a, C> {
         let win_aux = CreateWindowAux::new()
             .event_mask(
                 EventMask::Exposure
-                    | EventMask::SubstructureNotify
                     | EventMask::ButtonPress
                     | EventMask::ButtonRelease
                     | EventMask::PointerMotion
@@ -166,6 +188,7 @@ impl<'a, C: Connection> WMState<'a, C> {
                     | EventMask::Exposure
                     | EventMask::KeyPress
                     | EventMask::KeyRelease
+                    | EventMask::KeymapState
                     | EventMask::PropertyChange,
             )
             .background_pixel(screen.white_pixel);
@@ -180,11 +203,12 @@ impl<'a, C: Connection> WMState<'a, C> {
             geom.height + TITLEBAR_HEIGHT,
             1,
             WindowClass::InputOutput,
-            0,
+            COPY_FROM_PARENT,
             &win_aux,
         )?;
 
-        self.conn.reparent_window(win, frame_win, 0, 20)?;
+        println!("frame_win: {}", frame_win);
+        self.conn.reparent_window(win, frame_win, 0, TITLEBAR_HEIGHT as _)?;
         self.conn.map_window(win)?;
         self.conn.map_window(frame_win)?;
 
@@ -196,6 +220,8 @@ impl<'a, C: Connection> WMState<'a, C> {
     /// Draw the titlebar of a window
     fn redraw_titlebar(&self, state: &WindowState) -> Result<(), ReplyError> {
         let close_x = state.close_x_position();
+        let maximum_x = state.maximum_x_position();
+        let minimum_x = state.minimum_x_position();
         self.conn.poly_line(
             CoordMode::Origin,
             state.frame_window,
@@ -220,6 +246,31 @@ impl<'a, C: Connection> WMState<'a, C> {
                 Point {
                     x: state.width as _,
                     y: 0,
+                },
+            ],
+        )?;
+        self.conn.poly_arc(state.frame_window, self.black_gc, &[
+            Arc {
+                x: maximum_x,
+                y: 0,
+                width: TITLEBAR_HEIGHT,
+                height: TITLEBAR_HEIGHT,
+                angle1: 0,
+                angle2: 360 << 6,
+            },
+        ])?;
+        self.conn.poly_line(
+            CoordMode::Origin,
+            state.frame_window,
+            self.black_gc,
+            &[
+                Point {
+                    x: minimum_x,
+                    y: (TITLEBAR_HEIGHT / 2) as _,
+                },
+                Point {
+                    x: minimum_x + (TITLEBAR_HEIGHT as i16),
+                    y: (TITLEBAR_HEIGHT / 2) as _,
                 },
             ],
         )?;
@@ -387,24 +438,6 @@ impl<'a, C: Connection> WMState<'a, C> {
         }
         Ok(())
     }
-}
 
-pub fn become_wm<C: Connection>(conn: &C, screen: &Screen) -> Result<(), ReplyError> {
-    // Try to become the window manager. This causes an error if there is already another WM.
-    let change = ChangeWindowAttributesAux::default().event_mask(
-        EventMask::SubstructureRedirect
-            | EventMask::SubstructureNotify
-            | EventMask::EnterWindow
-            | EventMask::ButtonPress
-            | EventMask::ButtonRelease
-            | EventMask::KeyPress
-            | EventMask::KeyRelease,
-    );
-    let res = conn.change_window_attributes(screen.root, &change)?.check();
-    if let Err(ReplyError::X11Error(Error::Access(_))) = res {
-        eprintln!("Another WM is already running.");
-        exit(1);
-    } else {
-        res
-    }
+
 }

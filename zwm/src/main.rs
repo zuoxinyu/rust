@@ -11,33 +11,34 @@ fn main() {
     let conn = &conn;
 
     let screen = &conn.setup().roots[screen_num];
+    println!("Root window: {}", screen.root);
 
-    become_wm(conn, screen).unwrap();
-
-    let mut wm_state = WMState::new(conn, screen_num).unwrap();
-    let res = wm_state.scan_windows();
-    if res.is_err() {
-        println!("Error: {:?}", res.unwrap_err());
-    }
+    let mut wm_state = WindowManager::new(conn, screen_num).unwrap();
+    wm_state.become_wm().unwrap();
+    wm_state.scan_windows().unwrap();
 
     // ctrlc::set_handler(move || { wm_state.destroy(); });
 
     loop {
         wm_state.refresh().unwrap();
         conn.flush().unwrap();
-        let event = conn.wait_for_event().unwrap();
+        let event = conn.wait_for_event();
         println!("Got event: {:?}", event);
-        let mut option_event = Some(event);
-        while let Some(event) = option_event {
-            let res = wm_state.handle_event(event);
-            if res.is_err() {
-                println!("Error: {:?}", res.unwrap_err());
-            }
-            if wm_state.should_exit() {
-                wm_state.destroy();
-                return;
-            }
-            option_event = conn.poll_for_event().unwrap();
+        match event {
+            Ok(event) => {
+                let res = wm_state.handle_event(event);
+                if res. is_err() {
+                    println!("Error: {:?}", res.unwrap_err());
+                }
+            },
+            Err(err) => {
+                println!("Error: {:?}", err);
+            },
+        }
+
+        if wm_state.should_exit() {
+            wm_state.destroy();
+            return;
         }
     }
 }

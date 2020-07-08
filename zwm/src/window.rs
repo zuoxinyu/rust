@@ -33,4 +33,12 @@ impl WindowState {
     pub fn close_x_position(&self) -> i16 {
         std::cmp::max(0, self.width - TITLEBAR_HEIGHT) as _
     }
+
+    pub fn maximum_x_position(&self) -> i16 {
+        std::cmp::max(0, self.width - TITLEBAR_HEIGHT * 2) as _
+    }
+
+    pub fn minimum_x_position(&self) -> i16 {
+        std::cmp::max(0, self.width - TITLEBAR_HEIGHT * 3) as _
+    }
 }
