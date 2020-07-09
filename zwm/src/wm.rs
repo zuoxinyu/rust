@@ -12,10 +12,8 @@ use x11rb::protocol::xproto::*;
 use x11rb::protocol::{Error, Event};
 use x11rb::{COPY_DEPTH_FROM_PARENT, CURRENT_TIME};
 
-use crate::window::WindowState;
+use crate::window::{WindowState, ButtonPos};
 use self::x11rb::COPY_FROM_PARENT;
-
-const TITLEBAR_HEIGHT: u16 = 20;
 
 /// The state of the full WM
 #[derive(Debug)]
@@ -31,7 +29,7 @@ pub struct WindowManager<'a, C: Connection + ConnectionExt> {
     root: Window,
 }
 
-impl<'a, C: Connection+ConnectionExt> WindowManager<'a, C> {
+impl<'a, C: Connection + ConnectionExt> WindowManager<'a, C> {
     pub fn new(conn: &'a C, screen_num: usize) -> Result<WindowManager<'a, C>, ReplyOrIdError> {
         let screen = &conn.setup().roots[screen_num];
         let black_gc = conn.generate_id()?;
@@ -45,6 +43,8 @@ impl<'a, C: Connection+ConnectionExt> WindowManager<'a, C> {
             .font(font);
 
         conn.create_gc(black_gc, screen.root, &gc_aux)?;
+
+
         conn.close_font(font)?;
 
         let wm_protocols = conn.intern_atom(false, b"WM_PROTOCOLS")?;
@@ -63,10 +63,6 @@ impl<'a, C: Connection+ConnectionExt> WindowManager<'a, C> {
         })
     }
 
-    pub fn should_exit(&self) -> bool {
-        self.exit
-    }
-
     pub fn destroy(&self) {
         for it in self.windows.iter() {
             self.conn
@@ -78,7 +74,10 @@ impl<'a, C: Connection+ConnectionExt> WindowManager<'a, C> {
         self.conn.flush().unwrap();
     }
 
-    // Try to become the window manager. This causes an error if there is already another WM.
+    /// Should kill myself
+    pub fn should_exit(&self) -> bool { self.exit }
+
+    /// Try to become the window manager. This causes an error if there is already another WM.
     pub fn become_wm(&mut self) -> Result<(), ReplyError> {
         let change = ChangeWindowAttributesAux::default().event_mask(
             EventMask::SubstructureRedirect
@@ -96,6 +95,7 @@ impl<'a, C: Connection+ConnectionExt> WindowManager<'a, C> {
             res
         }
     }
+
     /// Scan for already existing windows and manage them
     pub fn scan_windows(&mut self) -> Result<(), ReplyOrIdError> {
         // Get the already existing top-level windows.
@@ -167,11 +167,7 @@ impl<'a, C: Connection+ConnectionExt> WindowManager<'a, C> {
     }
 
     /// Add a new window that should be managed by the WM
-    fn manage_window(
-        &mut self,
-        win: Window,
-        geom: &GetGeometryReply,
-    ) -> Result<(), ReplyOrIdError> {
+    fn manage_window(&mut self, win: Window, geom: &GetGeometryReply) -> Result<(), ReplyOrIdError> {
         println!("Managing window {:?}", win);
         let screen = &self.conn.setup().roots[self.screen_num];
         assert!(self.find_window_by_id(win).is_none());
@@ -185,7 +181,6 @@ impl<'a, C: Connection+ConnectionExt> WindowManager<'a, C> {
                     | EventMask::PointerMotion
                     | EventMask::EnterWindow
                     | EventMask::LeaveWindow
-                    | EventMask::Exposure
                     | EventMask::KeyPress
                     | EventMask::KeyRelease
                     | EventMask::KeymapState
@@ -200,7 +195,7 @@ impl<'a, C: Connection+ConnectionExt> WindowManager<'a, C> {
             geom.x,
             geom.y,
             geom.width,
-            geom.height + TITLEBAR_HEIGHT,
+            geom.height + WindowState::TITLEBAR_HEIGHT,
             1,
             WindowClass::InputOutput,
             COPY_FROM_PARENT,
@@ -208,7 +203,7 @@ impl<'a, C: Connection+ConnectionExt> WindowManager<'a, C> {
         )?;
 
         println!("frame_win: {}", frame_win);
-        self.conn.reparent_window(win, frame_win, 0, TITLEBAR_HEIGHT as _)?;
+        self.conn.reparent_window(win, frame_win, 0, WindowState::TITLEBAR_HEIGHT as _)?;
         self.conn.map_window(win)?;
         self.conn.map_window(frame_win)?;
 
@@ -230,7 +225,7 @@ impl<'a, C: Connection+ConnectionExt> WindowManager<'a, C> {
                 Point { x: close_x, y: 0 },
                 Point {
                     x: state.width as _,
-                    y: TITLEBAR_HEIGHT as _,
+                    y: WindowState::TITLEBAR_HEIGHT as _,
                 },
             ],
         )?;
@@ -241,7 +236,7 @@ impl<'a, C: Connection+ConnectionExt> WindowManager<'a, C> {
             &[
                 Point {
                     x: close_x,
-                    y: TITLEBAR_HEIGHT as _,
+                    y: WindowState::TITLEBAR_HEIGHT as _,
                 },
                 Point {
                     x: state.width as _,
@@ -253,8 +248,8 @@ impl<'a, C: Connection+ConnectionExt> WindowManager<'a, C> {
             Arc {
                 x: maximum_x,
                 y: 0,
-                width: TITLEBAR_HEIGHT,
-                height: TITLEBAR_HEIGHT,
+                width: WindowState::TITLEBAR_HEIGHT,
+                height: WindowState::TITLEBAR_HEIGHT,
                 angle1: 0,
                 angle2: 360 << 6,
             },
@@ -266,11 +261,11 @@ impl<'a, C: Connection+ConnectionExt> WindowManager<'a, C> {
             &[
                 Point {
                     x: minimum_x,
-                    y: (TITLEBAR_HEIGHT / 2) as _,
+                    y: (WindowState::TITLEBAR_HEIGHT / 2) as _,
                 },
                 Point {
-                    x: minimum_x + (TITLEBAR_HEIGHT as i16),
-                    y: (TITLEBAR_HEIGHT / 2) as _,
+                    x: minimum_x + (WindowState::TITLEBAR_HEIGHT as i16),
+                    y: (WindowState::TITLEBAR_HEIGHT / 2) as _,
                 },
             ],
         )?;
@@ -369,8 +364,7 @@ impl<'a, C: Connection+ConnectionExt> WindowManager<'a, C> {
             .set_input_focus(InputFocus::Parent, window, CURRENT_TIME)?;
 
         // put above
-        let mut aux = ConfigureWindowAux::default();
-        aux.stack_mode = Some(StackMode::Above);
+        let aux = ConfigureWindowAux::default().stack_mode(StackMode::Above);
         self.conn.configure_window(event.event, &aux)?;
         Ok(())
     }
@@ -385,26 +379,39 @@ impl<'a, C: Connection+ConnectionExt> WindowManager<'a, C> {
     }
 
     fn handle_button_release(&mut self, event: ButtonReleaseEvent) -> Result<(), ReplyError> {
-        if let Some(state) = self.find_window_by_id(event.event) {
-            if event.event_x as u16 > state.width - TITLEBAR_HEIGHT
-                && (event.event_y as u16) < TITLEBAR_HEIGHT
-            {
-                let data = [self.wm_delete_window, 0, 0, 0, 0];
+        let state: &mut WindowState;
+        let conn = self.conn;
+        let (delete_atom, protocoal_atom) = (self.wm_delete_window, self.wm_protocols);
+
+        if let Some(s) = self.find_window_by_id_mut(event.event) {
+            state = s;
+            state.pressing = false;
+        } else {
+            return Ok(());
+        }
+
+        match state.on_button(event.event_x, event.event_y) {
+            ButtonPos::Close => {
+                let data = [delete_atom, 0, 0, 0, 0];
                 let event = ClientMessageEvent {
                     response_type: CLIENT_MESSAGE_EVENT,
                     format: 32,
                     sequence: 0,
                     window: state.window,
-                    type_: self.wm_protocols,
+                    type_: protocoal_atom,
                     data: data.into(),
                 };
-                self.conn
-                    .send_event(false, state.window, EventMask::NoEvent, &event)?;
+                conn.send_event(false, state.window, EventMask::NoEvent, &event)?;
             }
-        }
-
-        if let Some(state) = self.find_window_by_id_mut(event.event) {
-            state.pressing = false;
+            ButtonPos::Maximum => {
+                let mut aux = ConfigureWindowAux::default()
+                    .width(1000)
+                    .height(800);
+                conn.configure_window(state.window, &aux)?;
+                aux.height(820);
+                conn.configure_window(state.frame_window, &aux)?;
+            }
+            _ => (),
         }
 
         Ok(())
@@ -438,6 +445,4 @@ impl<'a, C: Connection+ConnectionExt> WindowManager<'a, C> {
         }
         Ok(())
     }
-
-
 }

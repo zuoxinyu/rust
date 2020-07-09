@@ -1,10 +1,13 @@
 extern crate x11rb;
 extern crate zwm;
-// extern crate ctrlc;
+extern crate ctrlc;
 
 use x11rb::connection::Connection;
 
 use zwm::wm::*;
+use std::process::exit;
+
+static mut EXIT_WM: bool = false;
 
 fn main() {
     let (conn, screen_num) = x11rb::connect(None).unwrap();
@@ -13,32 +16,30 @@ fn main() {
     let screen = &conn.setup().roots[screen_num];
     println!("Root window: {}", screen.root);
 
-    let mut wm_state = WindowManager::new(conn, screen_num).unwrap();
-    wm_state.become_wm().unwrap();
-    wm_state.scan_windows().unwrap();
+    let mut wm = WindowManager::new(conn, screen_num).unwrap();
+    wm.become_wm().unwrap();
+    wm.scan_windows().unwrap();
+    conn.flush().unwrap();
 
-    // ctrlc::set_handler(move || { wm_state.destroy(); });
+    ctrlc::set_handler(|| unsafe { EXIT_WM = true }).unwrap();
 
     loop {
-        wm_state.refresh().unwrap();
-        conn.flush().unwrap();
-        let event = conn.wait_for_event();
-        println!("Got event: {:?}", event);
-        match event {
-            Ok(event) => {
-                let res = wm_state.handle_event(event);
-                if res. is_err() {
-                    println!("Error: {:?}", res.unwrap_err());
-                }
-            },
-            Err(err) => {
-                println!("Error: {:?}", err);
-            },
+        unsafe {
+            if EXIT_WM || wm.should_exit() {
+                println!("exiting zwm");
+                wm.destroy();
+                exit(0);
+            }
         }
 
-        if wm_state.should_exit() {
-            wm_state.destroy();
-            return;
+        wm.refresh().unwrap();
+        conn.flush().unwrap();
+        let event = conn.wait_for_event();
+        if let Ok(event) = event {
+            println!("Got event: {:?}", event);
+            wm.handle_event(event).unwrap();
+        } else {
+            eprintln!("Error: {:?}", event.unwrap_err());
         }
     }
 }
