@@ -1,23 +1,27 @@
 use x11rb::protocol::xproto::*;
+use crate::container::Container;
+use crate::error::RenderError;
+use crate::action::InputAction;
 
 /// The state of a single window that we manage
 #[derive(Debug, Clone)]
-pub struct WindowState {
+pub struct ManagedWindow {
     pub window: Window,
     pub frame_window: Window,
     pub x: i16,
     pub y: i16,
     pub width: u16,
     pub height: u16,
-    pub pressing: bool,
     pub pressing_x: i16,
     pub pressing_y: i16,
+    pub pressing: bool,
+    pub state: WindowState,
 }
 
-impl WindowState {
+impl ManagedWindow {
     pub const TITLEBAR_HEIGHT: u16 = 20u16;
-    pub fn new(window: Window, frame_window: Window, geom: &GetGeometryReply) -> WindowState {
-        WindowState {
+    pub fn new(window: Window, frame_window: Window, geom: &GetGeometryReply) -> ManagedWindow {
+        ManagedWindow {
             window,
             frame_window,
             x: geom.x,
@@ -27,11 +31,15 @@ impl WindowState {
             pressing: false,
             pressing_x: 0,
             pressing_y: 0,
+            state: WindowState::Normal,
         }
     }
 
     pub fn close_x_position(&self) -> i16 {
-        std::cmp::max(0, self.width - Self::TITLEBAR_HEIGHT) as _
+        match self.state {
+            WindowState::Normal => std::cmp::max(0, self.width - Self::TITLEBAR_HEIGHT) as _,
+            _ => 0,
+        }
     }
 
     pub fn maximum_x_position(&self) -> i16 {
@@ -54,9 +62,46 @@ impl WindowState {
     }
 }
 
+impl PartialEq for ManagedWindow {
+    fn eq(&self, other: &Self) -> bool {
+        self.frame_window == other.frame_window
+    }
+}
+
+impl Container for ManagedWindow {
+    fn render(&mut self, _action: InputAction) -> Result<(), RenderError> {
+        unimplemented!()
+    }
+
+    fn parent(&self) -> Box<dyn Container> {
+        unimplemented!()
+    }
+
+    fn children(&mut self) -> &mut Vec<Box<dyn Container>> {
+        unimplemented!()
+    }
+
+    fn insert_child(&mut self, _: Box<dyn Container>) -> Result<(), RenderError> {
+        unimplemented!()
+    }
+
+    fn remove_child(&mut self, _: &dyn Container) -> Result<(), RenderError> {
+        unimplemented!()
+    }
+}
+
+#[derive(Debug)]
 pub enum ButtonPos {
     Close,
     Maximum,
     Minimum,
     None,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum WindowState {
+    Normal,
+    Closed,
+    Maximum,
+    Minimum,
 }

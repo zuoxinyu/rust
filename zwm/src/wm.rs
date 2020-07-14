@@ -6,14 +6,17 @@ extern crate x11rb;
 use std::collections::HashSet;
 use std::process::exit;
 
+use x11rb::COPY_FROM_PARENT;
+use x11rb::NONE;
+use x11rb::protocol::randr;
 use x11rb::connection::Connection;
 use x11rb::errors::{ReplyError, ReplyOrIdError};
 use x11rb::protocol::xproto::*;
 use x11rb::protocol::{Error, Event};
 use x11rb::{COPY_DEPTH_FROM_PARENT, CURRENT_TIME};
+use x11rb::wrapper::ConnectionExt;
 
-use crate::window::{WindowState, ButtonPos};
-use self::x11rb::COPY_FROM_PARENT;
+use crate::window::{ManagedWindow, ButtonPos};
 
 /// The state of the full WM
 #[derive(Debug)]
@@ -21,19 +24,24 @@ pub struct WindowManager<'a, C: Connection + ConnectionExt> {
     conn: &'a C,
     screen_num: usize,
     black_gc: Gcontext,
-    windows: Vec<WindowState>,
+    windows: Vec<ManagedWindow>,
     pending_expose: HashSet<Window>,
     wm_protocols: Atom,
     wm_delete_window: Atom,
     exit: bool,
     root: Window,
+    screen_size: (u16, u16),
 }
 
-impl<'a, C: Connection + ConnectionExt> WindowManager<'a, C> {
+impl<'a, C: Connection + ConnectionExt + randr::ConnectionExt> WindowManager<'a, C> {
     pub fn new(conn: &'a C, screen_num: usize) -> Result<WindowManager<'a, C>, ReplyOrIdError> {
         let screen = &conn.setup().roots[screen_num];
         let black_gc = conn.generate_id()?;
         let font = conn.generate_id()?;
+
+        let monitors = conn.randr_get_monitors(screen.root, true)?.reply()?;
+        println!("monitors: {:?}", monitors);
+
         conn.open_font(font, b"9x15")?;
 
         let gc_aux = CreateGCAux::new()
@@ -43,8 +51,6 @@ impl<'a, C: Connection + ConnectionExt> WindowManager<'a, C> {
             .font(font);
 
         conn.create_gc(black_gc, screen.root, &gc_aux)?;
-
-
         conn.close_font(font)?;
 
         let wm_protocols = conn.intern_atom(false, b"WM_PROTOCOLS")?;
@@ -60,19 +66,10 @@ impl<'a, C: Connection + ConnectionExt> WindowManager<'a, C> {
             wm_delete_window: wm_delete_window.reply()?.atom,
             exit: false,
             root: screen.root,
+            screen_size: (screen.width_in_pixels as _, screen.height_in_pixels as _),
         })
     }
 
-    pub fn destroy(&self) {
-        for it in self.windows.iter() {
-            self.conn
-                .reparent_window(it.window, self.root, it.x, it.y)
-                .unwrap();
-            self.conn.destroy_window(it.frame_window).unwrap();
-        }
-
-        self.conn.flush().unwrap();
-    }
 
     /// Should kill myself
     pub fn should_exit(&self) -> bool { self.exit }
@@ -99,12 +96,12 @@ impl<'a, C: Connection + ConnectionExt> WindowManager<'a, C> {
     /// Scan for already existing windows and manage them
     pub fn scan_windows(&mut self) -> Result<(), ReplyOrIdError> {
         // Get the already existing top-level windows.
-        let tree_reply = self.conn.query_tree(self.root)?.reply()?;
+        let tree = self.conn.query_tree(self.root)?.reply()?;
 
         // For each window, request its attributes and geometry *now*
-        let mut cookies = Vec::with_capacity(tree_reply.children.len());
-        println!("number of exists win: {}", tree_reply.children.len());
-        for win in tree_reply.children {
+        let mut cookies = Vec::with_capacity(tree.children.len());
+        println!("number of exists win: {}", tree.children.len());
+        for win in tree.children {
             let attr = self.conn.get_window_attributes(win)?;
             let geom = self.conn.get_geometry(win)?;
             let name = self.get_window_name(win)?;
@@ -171,6 +168,9 @@ impl<'a, C: Connection + ConnectionExt> WindowManager<'a, C> {
         println!("Managing window {:?}", win);
         let screen = &self.conn.setup().roots[self.screen_num];
         assert!(self.find_window_by_id(win).is_none());
+        // Clear the event mask of the window to avoid the unmapped event during re-parenting.
+        let change_aux = ChangeWindowAttributesAux::default().event_mask(NONE);
+        self.conn.change_window_attributes(win, &change_aux)?;
 
         let frame_win = self.conn.generate_id()?;
         let win_aux = CreateWindowAux::new()
@@ -184,7 +184,6 @@ impl<'a, C: Connection + ConnectionExt> WindowManager<'a, C> {
                     | EventMask::KeyPress
                     | EventMask::KeyRelease
                     | EventMask::KeymapState
-                    | EventMask::PropertyChange,
             )
             .background_pixel(screen.white_pixel);
 
@@ -195,7 +194,7 @@ impl<'a, C: Connection + ConnectionExt> WindowManager<'a, C> {
             geom.x,
             geom.y,
             geom.width,
-            geom.height + WindowState::TITLEBAR_HEIGHT,
+            geom.height + ManagedWindow::TITLEBAR_HEIGHT,
             1,
             WindowClass::InputOutput,
             COPY_FROM_PARENT,
@@ -203,17 +202,24 @@ impl<'a, C: Connection + ConnectionExt> WindowManager<'a, C> {
         )?;
 
         println!("frame_win: {}", frame_win);
-        self.conn.reparent_window(win, frame_win, 0, WindowState::TITLEBAR_HEIGHT as _)?;
+        self.conn.reparent_window(win, frame_win, 0, ManagedWindow::TITLEBAR_HEIGHT as _)?;
+
+        // Restore the event mask. (from i3 source CHILD_EVENT_MASK)
+        let change_aux = change_aux.event_mask((EventMask::PropertyChange|EventMask::StructureNotify|EventMask::FocusChange) & (!u32::from(EventMask::EnterWindow)));
+        self.conn.change_window_attributes(win, &change_aux)?;
+
         self.conn.map_window(win)?;
         self.conn.map_window(frame_win)?;
 
-        self.windows.push(WindowState::new(win, frame_win, geom));
+        self.conn.change_save_set(SetMode::Insert, win)?; // may be repeated with drop?
+
+        self.windows.push(ManagedWindow::new(win, frame_win, geom));
 
         Ok(())
     }
 
     /// Draw the titlebar of a window
-    fn redraw_titlebar(&self, state: &WindowState) -> Result<(), ReplyError> {
+    fn redraw_titlebar(&self, state: &ManagedWindow) -> Result<(), ReplyError> {
         let close_x = state.close_x_position();
         let maximum_x = state.maximum_x_position();
         let minimum_x = state.minimum_x_position();
@@ -225,7 +231,7 @@ impl<'a, C: Connection + ConnectionExt> WindowManager<'a, C> {
                 Point { x: close_x, y: 0 },
                 Point {
                     x: state.width as _,
-                    y: WindowState::TITLEBAR_HEIGHT as _,
+                    y: ManagedWindow::TITLEBAR_HEIGHT as _,
                 },
             ],
         )?;
@@ -236,7 +242,7 @@ impl<'a, C: Connection + ConnectionExt> WindowManager<'a, C> {
             &[
                 Point {
                     x: close_x,
-                    y: WindowState::TITLEBAR_HEIGHT as _,
+                    y: ManagedWindow::TITLEBAR_HEIGHT as _,
                 },
                 Point {
                     x: state.width as _,
@@ -248,8 +254,8 @@ impl<'a, C: Connection + ConnectionExt> WindowManager<'a, C> {
             Arc {
                 x: maximum_x,
                 y: 0,
-                width: WindowState::TITLEBAR_HEIGHT,
-                height: WindowState::TITLEBAR_HEIGHT,
+                width: ManagedWindow::TITLEBAR_HEIGHT,
+                height: ManagedWindow::TITLEBAR_HEIGHT,
                 angle1: 0,
                 angle2: 360 << 6,
             },
@@ -261,11 +267,11 @@ impl<'a, C: Connection + ConnectionExt> WindowManager<'a, C> {
             &[
                 Point {
                     x: minimum_x,
-                    y: (WindowState::TITLEBAR_HEIGHT / 2) as _,
+                    y: (ManagedWindow::TITLEBAR_HEIGHT / 2) as _,
                 },
                 Point {
-                    x: minimum_x + (WindowState::TITLEBAR_HEIGHT as i16),
-                    y: (WindowState::TITLEBAR_HEIGHT / 2) as _,
+                    x: minimum_x + (ManagedWindow::TITLEBAR_HEIGHT as i16),
+                    y: (ManagedWindow::TITLEBAR_HEIGHT / 2) as _,
                 },
             ],
         )?;
@@ -285,13 +291,13 @@ impl<'a, C: Connection + ConnectionExt> WindowManager<'a, C> {
         Ok(())
     }
 
-    fn find_window_by_id(&self, win: Window) -> Option<&WindowState> {
+    fn find_window_by_id(&self, win: Window) -> Option<&ManagedWindow> {
         self.windows
             .iter()
             .find(|state| state.window == win || state.frame_window == win)
     }
 
-    fn find_window_by_id_mut(&mut self, win: Window) -> Option<&mut WindowState> {
+    fn find_window_by_id_mut(&mut self, win: Window) -> Option<&mut ManagedWindow> {
         self.windows
             .iter_mut()
             .find(|state| state.window == win || state.frame_window == win)
@@ -379,8 +385,9 @@ impl<'a, C: Connection + ConnectionExt> WindowManager<'a, C> {
     }
 
     fn handle_button_release(&mut self, event: ButtonReleaseEvent) -> Result<(), ReplyError> {
-        let state: &mut WindowState;
+        let state: &mut ManagedWindow;
         let conn = self.conn;
+        let screen_size = self.screen_size;
         let (delete_atom, protocoal_atom) = (self.wm_delete_window, self.wm_protocols);
 
         if let Some(s) = self.find_window_by_id_mut(event.event) {
@@ -404,12 +411,18 @@ impl<'a, C: Connection + ConnectionExt> WindowManager<'a, C> {
                 conn.send_event(false, state.window, EventMask::NoEvent, &event)?;
             }
             ButtonPos::Maximum => {
-                let mut aux = ConfigureWindowAux::default()
-                    .width(1000)
-                    .height(800);
+                let aux = ConfigureWindowAux::default()
+                    .width(screen_size.0 as u32)
+                    .height(screen_size.1 as u32 - ManagedWindow::TITLEBAR_HEIGHT as u32);
                 conn.configure_window(state.window, &aux)?;
-                aux.height(820);
+                let aux = aux
+                    .x(0)
+                    .y(0)
+                    .height(screen_size.1 as u32);
                 conn.configure_window(state.frame_window, &aux)?;
+            }
+            ButtonPos::Minimum => {
+                conn.unmap_window(state.frame_window)?;
             }
             _ => (),
         }
@@ -444,5 +457,19 @@ impl<'a, C: Connection + ConnectionExt> WindowManager<'a, C> {
             self.exit = true;
         }
         Ok(())
+    }
+}
+
+impl<'a, C: Connection + ConnectionExt> Drop for WindowManager<'a, C> {
+    fn drop(&mut self) {
+        for it in self.windows.iter() {
+            self.conn
+                .reparent_window(it.window, self.root, it.x, it.y)
+                .unwrap();
+            self.conn.destroy_window(it.frame_window).unwrap();
+        }
+
+        self.conn.flush().unwrap();
+        println!("dropped wm");
     }
 }
