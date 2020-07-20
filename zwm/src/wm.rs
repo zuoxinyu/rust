@@ -1,22 +1,21 @@
-// A very simple reparenting window manager.
-// This WM does NOT follow ICCCM!
-
 extern crate x11rb;
 
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::process::exit;
 
-use x11rb::COPY_FROM_PARENT;
-use x11rb::NONE;
-use x11rb::protocol::randr;
 use x11rb::connection::Connection;
 use x11rb::errors::{ReplyError, ReplyOrIdError};
+use x11rb::protocol::randr;
 use x11rb::protocol::xproto::*;
 use x11rb::protocol::{Error, Event};
-use x11rb::{COPY_DEPTH_FROM_PARENT, CURRENT_TIME};
-use x11rb::wrapper::ConnectionExt;
+use x11rb::COPY_DEPTH_FROM_PARENT;
+use x11rb::COPY_FROM_PARENT;
+use x11rb::NONE;
 
-use crate::window::{ManagedWindow, ButtonPos};
+use crate::action::Action;
+use crate::container::Container;
+use crate::window::ManagedWindow;
 
 /// The state of the full WM
 #[derive(Debug)]
@@ -25,6 +24,7 @@ pub struct WindowManager<'a, C: Connection + ConnectionExt> {
     screen_num: usize,
     black_gc: Gcontext,
     windows: Vec<ManagedWindow>,
+    managed_windows: HashMap<Window, Box<ManagedWindow>>,
     pending_expose: HashSet<Window>,
     wm_protocols: Atom,
     wm_delete_window: Atom,
@@ -61,6 +61,7 @@ impl<'a, C: Connection + ConnectionExt + randr::ConnectionExt> WindowManager<'a,
             screen_num,
             black_gc,
             windows: Vec::default(),
+            managed_windows: HashMap::new(),
             pending_expose: HashSet::default(),
             wm_protocols: wm_protocols.reply()?.atom,
             wm_delete_window: wm_delete_window.reply()?.atom,
@@ -70,9 +71,10 @@ impl<'a, C: Connection + ConnectionExt + randr::ConnectionExt> WindowManager<'a,
         })
     }
 
-
     /// Should kill myself
-    pub fn should_exit(&self) -> bool { self.exit }
+    pub fn should_exit(&self) -> bool {
+        self.exit
+    }
 
     /// Try to become the window manager. This causes an error if there is already another WM.
     pub fn become_wm(&mut self) -> Result<(), ReplyError> {
@@ -80,11 +82,21 @@ impl<'a, C: Connection + ConnectionExt + randr::ConnectionExt> WindowManager<'a,
             EventMask::SubstructureRedirect
                 | EventMask::EnterWindow
                 | EventMask::ButtonPress
-                | EventMask::ButtonRelease
-                | EventMask::KeyPress
-                | EventMask::KeyRelease,
+                | EventMask::ButtonRelease,
         );
-        let res = self.conn.change_window_attributes(self.root, &change)?.check();
+        let res = self
+            .conn
+            .change_window_attributes(self.root, &change)?
+            .check();
+
+        self.conn.grab_key(
+            false,
+            self.root,
+            KeyButMask::Mod1,
+            24,
+            GrabMode::Async,
+            GrabMode::Async,
+        )?;
         if let Err(ReplyError::X11Error(Error::Access(_))) = res {
             eprintln!("Another WM is already running.");
             exit(1);
@@ -158,13 +170,17 @@ impl<'a, C: Connection + ConnectionExt + randr::ConnectionExt> WindowManager<'a,
             Event::ButtonRelease(event) => self.handle_button_release(event)?,
             Event::MotionNotify(event) => self.handle_mouse_move(event)?,
             Event::KeyPress(event) => self.handle_key_press(event)?,
-            _ => {}
+            _ => {},
         }
         Ok(())
     }
 
     /// Add a new window that should be managed by the WM
-    fn manage_window(&mut self, win: Window, geom: &GetGeometryReply) -> Result<(), ReplyOrIdError> {
+    fn manage_window(
+        &mut self,
+        win: Window,
+        geom: &GetGeometryReply,
+    ) -> Result<(), ReplyOrIdError> {
         println!("Managing window {:?}", win);
         let screen = &self.conn.setup().roots[self.screen_num];
         assert!(self.find_window_by_id(win).is_none());
@@ -183,7 +199,7 @@ impl<'a, C: Connection + ConnectionExt + randr::ConnectionExt> WindowManager<'a,
                     | EventMask::LeaveWindow
                     | EventMask::KeyPress
                     | EventMask::KeyRelease
-                    | EventMask::KeymapState
+                    | EventMask::KeymapState,
             )
             .background_pixel(screen.white_pixel);
 
@@ -202,18 +218,25 @@ impl<'a, C: Connection + ConnectionExt + randr::ConnectionExt> WindowManager<'a,
         )?;
 
         println!("frame_win: {}", frame_win);
-        self.conn.reparent_window(win, frame_win, 0, ManagedWindow::TITLEBAR_HEIGHT as _)?;
+        self.conn
+            .reparent_window(win, frame_win, 0, ManagedWindow::TITLEBAR_HEIGHT as _)?;
 
         // Restore the event mask. (from i3 source CHILD_EVENT_MASK)
-        let change_aux = change_aux.event_mask((EventMask::PropertyChange|EventMask::StructureNotify|EventMask::FocusChange) & (!u32::from(EventMask::EnterWindow)));
+        let change_aux = change_aux.event_mask(
+            (EventMask::PropertyChange | EventMask::StructureNotify | EventMask::FocusChange)
+                & (!u32::from(EventMask::EnterWindow)),
+        );
         self.conn.change_window_attributes(win, &change_aux)?;
 
         self.conn.map_window(win)?;
         self.conn.map_window(frame_win)?;
 
+        // self.conn.grab_pointer(true, frame_win, EventMask::PointerMotion as u16, GrabMode::Async, GrabMode::Async, frame_win, NONE, CURRENT_TIME)?;
+
         self.conn.change_save_set(SetMode::Insert, win)?; // may be repeated with drop?
 
         self.windows.push(ManagedWindow::new(win, frame_win, geom));
+        self.managed_windows.insert(win, Box::new(ManagedWindow::new(win, frame_win, geom)));
 
         Ok(())
     }
@@ -250,16 +273,18 @@ impl<'a, C: Connection + ConnectionExt + randr::ConnectionExt> WindowManager<'a,
                 },
             ],
         )?;
-        self.conn.poly_arc(state.frame_window, self.black_gc, &[
-            Arc {
+        self.conn.poly_arc(
+            state.frame_window,
+            self.black_gc,
+            &[Arc {
                 x: maximum_x,
                 y: 0,
                 width: ManagedWindow::TITLEBAR_HEIGHT,
                 height: ManagedWindow::TITLEBAR_HEIGHT,
                 angle1: 0,
                 angle2: 360 << 6,
-            },
-        ])?;
+            }],
+        )?;
         self.conn.poly_line(
             CoordMode::Origin,
             state.frame_window,
@@ -303,6 +328,45 @@ impl<'a, C: Connection + ConnectionExt + randr::ConnectionExt> WindowManager<'a,
             .find(|state| state.window == win || state.frame_window == win)
     }
 
+    fn find_window_by_event(&mut self, event: Event) -> Option<&Box<ManagedWindow>> {
+        let w = match event {
+            Event::ButtonPress(e) => Some(e.event),
+            Event::ButtonRelease(e) => Some(e.event),
+            Event::CirculateNotify(e) => Some(e.window),
+            Event::CirculateRequest(e) => Some(e.window),
+            Event::ClientMessage(e) => Some(e.window),
+            Event::ColormapNotify(e) => Some(e.window),
+            Event::ConfigureNotify(e) => Some(e.window),
+            Event::ConfigureRequest(e) => Some(e.window),
+            Event::CreateNotify(e) => Some(e.window),
+            Event::DestroyNotify(e) => Some(e.window),
+            Event::EnterNotify(e) => Some(e.event),
+            Event::Expose(e) => Some(e.window),
+            Event::FocusIn(e) => Some(e.event),
+            Event::FocusOut(e) => Some(e.event),
+            Event::GraphicsExposure(e) => Some(e.drawable),
+            Event::GravityNotify(e) => Some(e.window),
+            Event::KeyPress(e) => Some(e.event),
+            Event::KeyRelease(e) => Some(e.event),
+            Event::LeaveNotify(e) => Some(e.event),
+            Event::MapNotify(e) => Some(e.window),
+            Event::MapRequest(e) => Some(e.window),
+            Event::MotionNotify(e) => Some(e.event),
+            Event::NoExposure(e) => Some(e.drawable),
+            Event::PropertyNotify(e) => Some(e.window),
+            Event::ReparentNotify(e) => Some(e.window),
+            Event::ResizeRequest(e) => Some(e.window),
+            Event::SelectionClear(e) => Some(e.owner),
+            Event::SelectionNotify(e) => Some(e.target),
+            Event::SelectionRequest(e) => Some(e.target),
+            Event::UnmapNotify(e) => Some(e.window),
+            Event::VisibilityNotify(e) => Some(e.window),
+            Event::DamageNotify(e) => Some(e.drawable),
+            _ => None,
+        };
+        w.map_or_else(||None, move |x| self.managed_windows.get(&x))
+    }
+
     fn get_window_name(&self, win: Window) -> Result<String, ReplyError> {
         let prop = self.conn.get_property(
             false,
@@ -318,33 +382,24 @@ impl<'a, C: Connection + ConnectionExt + randr::ConnectionExt> WindowManager<'a,
     }
 
     fn handle_unmap_notify(&mut self, event: UnmapNotifyEvent) -> Result<(), ReplyError> {
-        let conn = self.conn;
-        self.windows.retain(|state| {
-            if state.window != event.window {
-                return true;
-            }
-            conn.destroy_window(state.frame_window).unwrap();
-            false
-        });
+        if let Some(win) = self.find_window_by_id_mut(event.window) {
+            win.render(Action::Destroy).unwrap();
+        }
         Ok(())
     }
 
     fn handle_configure_request(&mut self, event: ConfigureRequestEvent) -> Result<(), ReplyError> {
-        let mut aux = ConfigureWindowAux::default();
-        if event.value_mask & u16::from(ConfigWindow::X) != 0 {
-            aux = aux.x(i32::from(event.x));
+        if let Some(win) = self.find_window_by_id_mut(event.window) {
+            if event.value_mask & (u16::from(ConfigWindow::X) | u16::from(ConfigWindow::Y)) != 0 {
+                win.render(Action::SetPosition(event.x, event.y)).unwrap();
+            }
+            if event.value_mask & (u16::from(ConfigWindow::Width) | u16::from(ConfigWindow::Height))
+                != 0
+            {
+                win.render(Action::SetSize(event.width, event.height))
+                    .unwrap();
+            }
         }
-        if event.value_mask & u16::from(ConfigWindow::Y) != 0 {
-            aux = aux.y(i32::from(event.y));
-        }
-        if event.value_mask & u16::from(ConfigWindow::Width) != 0 {
-            aux = aux.width(u32::from(event.width));
-        }
-        if event.value_mask & u16::from(ConfigWindow::Height) != 0 {
-            aux = aux.height(u32::from(event.height));
-        }
-        println!("Configure: {:?}", aux);
-        self.conn.configure_window(event.window, &aux)?;
         Ok(())
     }
 
@@ -361,93 +416,31 @@ impl<'a, C: Connection + ConnectionExt + randr::ConnectionExt> WindowManager<'a,
     }
 
     fn handle_enter(&mut self, event: EnterNotifyEvent) -> Result<(), ReplyError> {
-        let window = if let Some(state) = self.find_window_by_id(event.child) {
-            state.window
-        } else {
-            event.event
-        };
-        self.conn
-            .set_input_focus(InputFocus::Parent, window, CURRENT_TIME)?;
-
-        // put above
-        let aux = ConfigureWindowAux::default().stack_mode(StackMode::Above);
-        self.conn.configure_window(event.event, &aux)?;
+        if let Some(win) = self.find_window_by_id_mut(event.child) {
+            win.render(Action::Focus).unwrap();
+        }
         Ok(())
     }
 
     fn handle_button_press(&mut self, event: ButtonPressEvent) -> Result<(), ReplyError> {
-        if let Some(state) = self.find_window_by_id_mut(event.event) {
-            state.pressing = true;
-            state.pressing_x = event.root_x;
-            state.pressing_y = event.root_y;
+        if let Some(win) = self.find_window_by_id_mut(event.event) {
+            win.render(Action::SetPressing(event.event_x, event.event_y))
+                .unwrap();
         }
         Ok(())
     }
 
     fn handle_button_release(&mut self, event: ButtonReleaseEvent) -> Result<(), ReplyError> {
-        let state: &mut ManagedWindow;
-        let conn = self.conn;
-        let screen_size = self.screen_size;
-        let (delete_atom, protocoal_atom) = (self.wm_delete_window, self.wm_protocols);
-
-        if let Some(s) = self.find_window_by_id_mut(event.event) {
-            state = s;
-            state.pressing = false;
-        } else {
-            return Ok(());
-        }
-
-        match state.on_button(event.event_x, event.event_y) {
-            ButtonPos::Close => {
-                let data = [delete_atom, 0, 0, 0, 0];
-                let event = ClientMessageEvent {
-                    response_type: CLIENT_MESSAGE_EVENT,
-                    format: 32,
-                    sequence: 0,
-                    window: state.window,
-                    type_: protocoal_atom,
-                    data: data.into(),
-                };
-                conn.send_event(false, state.window, EventMask::NoEvent, &event)?;
-            }
-            ButtonPos::Maximum => {
-                let aux = ConfigureWindowAux::default()
-                    .width(screen_size.0 as u32)
-                    .height(screen_size.1 as u32 - ManagedWindow::TITLEBAR_HEIGHT as u32);
-                conn.configure_window(state.window, &aux)?;
-                let aux = aux
-                    .x(0)
-                    .y(0)
-                    .height(screen_size.1 as u32);
-                conn.configure_window(state.frame_window, &aux)?;
-            }
-            ButtonPos::Minimum => {
-                conn.unmap_window(state.frame_window)?;
-            }
-            _ => (),
+        if let Some(win) = self.find_window_by_event(event) {
+            win.render(Action::MouseRelease(event.event_x, event.event_y)).unwrap();
         }
 
         Ok(())
     }
 
     fn handle_mouse_move(&mut self, event: MotionNotifyEvent) -> Result<(), ReplyError> {
-        if let Some(state) = self.find_window_by_id(event.event) {
-            if state.pressing {
-                let x = state.x + event.root_x - state.pressing_x;
-                let y = state.y + event.root_y - state.pressing_y;
-                let mut aux = ConfigureWindowAux::new();
-                aux.x = Some(x as i32);
-                aux.y = Some(y as i32);
-                self.conn.configure_window(state.frame_window, &aux)?;
-
-                if let Some(state) = self.find_window_by_id_mut(event.event) {
-                    state.x = x;
-                    state.y = y;
-                    state.pressing_x = event.root_x;
-                    state.pressing_y = event.root_y;
-                    println!("current window: {:?}", state);
-                }
-            }
+        if let Some(state) = self.find_window_by_id_mut(event.event) {
+            state.render(Action::Move(event.root_x, event.root_y)).unwrap();
         }
         Ok(())
     }

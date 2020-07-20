@@ -1,5 +1,5 @@
 use crate::error::RenderError;
-use crate::action::InputAction;
+use crate::action::Action;
 
 /// Container is the basic abstraction for window, namespace, layout
 ///
@@ -54,7 +54,7 @@ use crate::action::InputAction;
 /// }
 /// ```
 pub trait Container {
-    fn render(&mut self, action: InputAction) -> Result<(), RenderError>;
+    fn render(&mut self, action: Action) -> Result<(), RenderError>;
     fn parent(&self) -> Box<dyn Container>;
     fn children(&mut self) -> &mut Vec<Box<dyn Container>>;
     fn insert_child(&mut self, _: Box<dyn Container>) -> Result<(), RenderError>;
