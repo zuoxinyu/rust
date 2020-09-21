@@ -1,6 +1,6 @@
 use crate::error::RenderError;
-use crate::window::ManagedWindow;
 use crate::types::*;
+use crate::window::ManagedWindow;
 
 #[derive(Copy, Clone)]
 pub enum Action {
@@ -28,24 +28,24 @@ pub mod xcb {
     use x11rb::CURRENT_TIME;
 
     use super::Action;
+    use crate::container::Container;
     use crate::error::RenderError;
     use crate::window::ManagedWindow;
-    use crate::container::Container;
 
     impl<T> super::WindowOperator for T
     where
         T: Connection + ConnectionExt,
     {
-        fn render(
-            &self,
-            window: &mut ManagedWindow,
-            action: Action,
-        ) -> Result<(), RenderError> {
+        fn render(&self, window: &mut ManagedWindow, action: Action) -> Result<(), RenderError> {
             match action {
                 Action::SetSize(w, h) => {
-                    let aux = ConfigureWindowAux::default().width(w as u32).height(h as u32 + ManagedWindow::TITLEBAR_HEIGHT as u32);
+                    let aux = ConfigureWindowAux::default()
+                        .width(w as u32)
+                        .height(h as u32 + ManagedWindow::TITLEBAR_HEIGHT as u32);
                     self.configure_window(window.frame_window, &aux)?;
-                    let aux = ConfigureWindowAux::default().width(w as u32).height(h as u32 + ManagedWindow::TITLEBAR_HEIGHT as u32);
+                    let aux = ConfigureWindowAux::default()
+                        .width(w as u32)
+                        .height(h as u32 + ManagedWindow::TITLEBAR_HEIGHT as u32);
                     self.configure_window(window.frame_window, &aux)?;
                     window.width = w;
                     window.height = h;

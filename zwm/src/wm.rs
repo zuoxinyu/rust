@@ -56,7 +56,7 @@ impl<'a, C: Connection + ConnectionExt + randr::ConnectionExt> WindowManager<'a,
         let wm_protocols = conn.intern_atom(false, b"WM_PROTOCOLS")?;
         let wm_delete_window = conn.intern_atom(false, b"WM_DELETE_WINDOW")?;
 
-        Ok(WindowManager {
+        let mut wm = WindowManager {
             conn,
             screen_num,
             black_gc,
@@ -68,41 +68,18 @@ impl<'a, C: Connection + ConnectionExt + randr::ConnectionExt> WindowManager<'a,
             exit: false,
             root: screen.root,
             screen_size: (screen.width_in_pixels as _, screen.height_in_pixels as _),
-        })
+        };
+
+        wm.become_wm().unwrap();
+        wm.scan_windows().unwrap();
+        conn.flush().unwrap();
+
+        Ok(wm)
     }
 
     /// Should kill myself
     pub fn should_exit(&self) -> bool {
         self.exit
-    }
-
-    /// Try to become the window manager. This causes an error if there is already another WM.
-    pub fn become_wm(&mut self) -> Result<(), ReplyError> {
-        let change = ChangeWindowAttributesAux::default().event_mask(
-            EventMask::SubstructureRedirect
-                | EventMask::EnterWindow
-                | EventMask::ButtonPress
-                | EventMask::ButtonRelease,
-        );
-        let res = self
-            .conn
-            .change_window_attributes(self.root, &change)?
-            .check();
-
-        self.conn.grab_key(
-            false,
-            self.root,
-            KeyButMask::Mod1,
-            24,
-            GrabMode::Async,
-            GrabMode::Async,
-        )?;
-        if let Err(ReplyError::X11Error(Error::Access(_))) = res {
-            eprintln!("Another WM is already running.");
-            exit(1);
-        } else {
-            res
-        }
     }
 
     /// Scan for already existing windows and manage them
@@ -155,7 +132,7 @@ impl<'a, C: Connection + ConnectionExt + randr::ConnectionExt> WindowManager<'a,
                 }
             }
         }
-        Ok(())
+        self.conn.flush().map_err(|e| e.into())
     }
 
     /// Handle the given event
@@ -170,9 +147,38 @@ impl<'a, C: Connection + ConnectionExt + randr::ConnectionExt> WindowManager<'a,
             Event::ButtonRelease(event) => self.handle_button_release(event)?,
             Event::MotionNotify(event) => self.handle_mouse_move(event)?,
             Event::KeyPress(event) => self.handle_key_press(event)?,
-            _ => {},
+            _ => {}
         }
         Ok(())
+    }
+
+    /// Try to become the window manager. This causes an error if there is already another WM.
+    fn become_wm(&mut self) -> Result<(), ReplyError> {
+        let change = ChangeWindowAttributesAux::default().event_mask(
+            EventMask::SubstructureRedirect
+                | EventMask::EnterWindow
+                | EventMask::ButtonPress
+                | EventMask::ButtonRelease,
+        );
+        let res = self
+            .conn
+            .change_window_attributes(self.root, &change)?
+            .check();
+
+        self.conn.grab_key(
+            false,
+            self.root,
+            KeyButMask::Mod1,
+            24,
+            GrabMode::Async,
+            GrabMode::Async,
+        )?;
+        if let Err(ReplyError::X11Error(Error::Access(_))) = res {
+            eprintln!("Another WM is already running.");
+            exit(1);
+        } else {
+            res
+        }
     }
 
     /// Add a new window that should be managed by the WM
@@ -236,7 +242,8 @@ impl<'a, C: Connection + ConnectionExt + randr::ConnectionExt> WindowManager<'a,
         self.conn.change_save_set(SetMode::Insert, win)?; // may be repeated with drop?
 
         self.windows.push(ManagedWindow::new(win, frame_win, geom));
-        self.managed_windows.insert(win, Box::new(ManagedWindow::new(win, frame_win, geom)));
+        self.managed_windows
+            .insert(win, Box::new(ManagedWindow::new(win, frame_win, geom)));
 
         Ok(())
     }
@@ -364,7 +371,7 @@ impl<'a, C: Connection + ConnectionExt + randr::ConnectionExt> WindowManager<'a,
             Event::DamageNotify(e) => Some(e.drawable),
             _ => None,
         };
-        w.map_or_else(||None, move |x| self.managed_windows.get(&x))
+        w.map_or_else(|| None, move |x| self.managed_windows.get(&x))
     }
 
     fn get_window_name(&self, win: Window) -> Result<String, ReplyError> {
@@ -431,8 +438,9 @@ impl<'a, C: Connection + ConnectionExt + randr::ConnectionExt> WindowManager<'a,
     }
 
     fn handle_button_release(&mut self, event: ButtonReleaseEvent) -> Result<(), ReplyError> {
-        if let Some(win) = self.find_window_by_event(event) {
-            win.render(Action::MouseRelease(event.event_x, event.event_y)).unwrap();
+        if let Some(win) = self.find_window_by_id_mut(event.event) {
+            win.render(Action::MouseRelease(event.event_x, event.event_y))
+                .unwrap();
         }
 
         Ok(())
@@ -440,7 +448,9 @@ impl<'a, C: Connection + ConnectionExt + randr::ConnectionExt> WindowManager<'a,
 
     fn handle_mouse_move(&mut self, event: MotionNotifyEvent) -> Result<(), ReplyError> {
         if let Some(state) = self.find_window_by_id_mut(event.event) {
-            state.render(Action::Move(event.root_x, event.root_y)).unwrap();
+            state
+                .render(Action::Move(event.root_x, event.root_y))
+                .unwrap();
         }
         Ok(())
     }

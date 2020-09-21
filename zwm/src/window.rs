@@ -1,9 +1,9 @@
 use x11rb::protocol::xproto::*;
 
-use crate::types::*;
+use crate::action::Action;
 use crate::container::Container;
 use crate::error::RenderError;
-use crate::action::Action;
+use crate::types::*;
 
 /// The state of a single window that we manage
 #[derive(Debug, Clone)]
@@ -53,11 +53,15 @@ impl ManagedWindow {
     }
 
     pub fn on_button(&self, x: signed, y: signed) -> ButtonPos {
-        match y < Self::TITLEBAR_HEIGHT as signed{
+        match y < Self::TITLEBAR_HEIGHT as signed {
             // - o x
             true if x > self.close_x_position() && x < self.width as signed => ButtonPos::Close,
-            true if x > self.maximum_x_position() && x < self.close_x_position() => ButtonPos::Maximum,
-            true if x > self.minimum_x_position() && x < self.maximum_x_position() => ButtonPos::Minimum,
+            true if x > self.maximum_x_position() && x < self.close_x_position() => {
+                ButtonPos::Maximum
+            }
+            true if x > self.minimum_x_position() && x < self.maximum_x_position() => {
+                ButtonPos::Minimum
+            }
             _ => ButtonPos::None,
         }
     }

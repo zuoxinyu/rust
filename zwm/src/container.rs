@@ -1,5 +1,5 @@
-use crate::error::RenderError;
 use crate::action::Action;
+use crate::error::RenderError;
 
 /// Container is the basic abstraction for window, namespace, layout
 ///
