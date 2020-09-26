@@ -19,8 +19,11 @@ use crate::window::ManagedWindow;
 
 /// The state of the full WM
 #[derive(Debug)]
-pub struct WindowManager<'a, C: Connection + ConnectionExt> {
-    conn: &'a C,
+pub struct WindowManager<T>
+where
+    T: Connection + ConnectionExt+randr::ConnectionExt
+{
+    conn: Box<T>,
     screen_num: usize,
     black_gc: Gcontext,
     windows: Vec<ManagedWindow>,
@@ -33,13 +36,22 @@ pub struct WindowManager<'a, C: Connection + ConnectionExt> {
     screen_size: (u16, u16),
 }
 
-impl<'a, C: Connection + ConnectionExt + randr::ConnectionExt> WindowManager<'a, C> {
-    pub fn new(conn: &'a C, screen_num: usize) -> Result<WindowManager<'a, C>, ReplyOrIdError> {
-        let screen = &conn.setup().roots[screen_num];
+impl<T> WindowManager<T>
+where
+    T: Connection + ConnectionExt,
+{
+    pub fn new(
+        address: &str,
+    ) -> Result<WindowManager<impl Connection + ConnectionExt + randr::ConnectionExt>, ReplyOrIdError> {
+        let (conn, screen_num) = x11rb::connect(Some(address)).unwrap();
+        let conn = Box::new(conn);
+
         let black_gc = conn.generate_id()?;
         let font = conn.generate_id()?;
+        let screen = conn.setup().roots[screen_num].clone();
 
-        let monitors = conn.randr_get_monitors(screen.root, true)?.reply()?;
+        //let monitors = &conn.randr_get_monitors(screen.root, true)?.reply()?;
+        let monitors = randr::get_screen_info(conn.as_ref(), screen.root)?.reply();
         println!("monitors: {:?}", monitors);
 
         conn.open_font(font, b"9x15")?;
@@ -53,8 +65,16 @@ impl<'a, C: Connection + ConnectionExt + randr::ConnectionExt> WindowManager<'a,
         conn.create_gc(black_gc, screen.root, &gc_aux)?;
         conn.close_font(font)?;
 
-        let wm_protocols = conn.intern_atom(false, b"WM_PROTOCOLS")?;
-        let wm_delete_window = conn.intern_atom(false, b"WM_DELETE_WINDOW")?;
+        let wm_protocols = conn
+            .as_ref()
+            .intern_atom(false, b"WM_PROTOCOLS")?
+            .reply()?
+            .atom;
+        let wm_delete_window = conn
+            .as_ref()
+            .intern_atom(false, b"WM_DELETE_WINDOW")?
+            .reply()?
+            .atom;
 
         let mut wm = WindowManager {
             conn,
@@ -63,8 +83,8 @@ impl<'a, C: Connection + ConnectionExt + randr::ConnectionExt> WindowManager<'a,
             windows: Vec::default(),
             managed_windows: HashMap::new(),
             pending_expose: HashSet::default(),
-            wm_protocols: wm_protocols.reply()?.atom,
-            wm_delete_window: wm_delete_window.reply()?.atom,
+            wm_protocols,
+            wm_delete_window,
             exit: false,
             root: screen.root,
             screen_size: (screen.width_in_pixels as _, screen.height_in_pixels as _),
@@ -72,38 +92,37 @@ impl<'a, C: Connection + ConnectionExt + randr::ConnectionExt> WindowManager<'a,
 
         wm.become_wm().unwrap();
         wm.scan_windows().unwrap();
-        conn.flush().unwrap();
+        // conn.flush().unwrap();
 
         Ok(wm)
     }
 
     /// Should kill myself
-    pub fn should_exit(&self) -> bool {
-        self.exit
+    pub fn set_exit(&mut self) {
+        self.exit = true
     }
 
     /// Scan for already existing windows and manage them
     pub fn scan_windows(&mut self) -> Result<(), ReplyOrIdError> {
         // Get the already existing top-level windows.
         let tree = self.conn.query_tree(self.root)?.reply()?;
-
         // For each window, request its attributes and geometry *now*
-        let mut cookies = Vec::with_capacity(tree.children.len());
         println!("number of exists win: {}", tree.children.len());
-        for win in tree.children {
-            let attr = self.conn.get_window_attributes(win)?;
-            let geom = self.conn.get_geometry(win)?;
-            let name = self.get_window_name(win)?;
-
-            cookies.push((win, attr, geom, name));
-        }
+        let cookies: Vec<_> = tree
+            .children
+            .iter()
+            .map(|&w| {
+                (
+                    w,
+                    self.conn.get_window_attributes(w).unwrap().reply(),
+                    self.conn.get_geometry(w).unwrap().reply(),
+                    self.get_window_name(w).unwrap(),
+                )
+            })
+            .filter(|t| t.1.is_ok() && t.2.is_ok())
+            .collect();
         // Get the replies and manage windows
         for (win, attr, geom, name) in cookies {
-            let (attr, geom) = (attr.reply(), geom.reply());
-            if attr.is_err() || geom.is_err() {
-                continue;
-            }
-
             let (attr, geom) = (attr.unwrap(), geom.unwrap());
 
             println!(
@@ -135,6 +154,25 @@ impl<'a, C: Connection + ConnectionExt + randr::ConnectionExt> WindowManager<'a,
         self.conn.flush().map_err(|e| e.into())
     }
 
+    pub fn run(&mut self) -> () {
+        loop {
+            if self.exit {
+                break;
+            }
+            self.refresh().unwrap();
+            let event = self.conn.poll_for_event();
+            // let event = self.conn.wait_for_event();
+            if let Ok(event) = event {
+                if let Some(event) = event {
+                    println!("Got event: {:?}", event);
+                    self.handle_event(event).unwrap();
+                }
+            } else {
+                eprintln!("Error: {:?}", event.unwrap_err());
+            }
+        }
+    }
+
     /// Handle the given event
     pub fn handle_event(&mut self, event: Event) -> Result<(), ReplyOrIdError> {
         match event {
@@ -157,6 +195,8 @@ impl<'a, C: Connection + ConnectionExt + randr::ConnectionExt> WindowManager<'a,
         let change = ChangeWindowAttributesAux::default().event_mask(
             EventMask::SubstructureRedirect
                 | EventMask::EnterWindow
+                | EventMask::KeyPress
+                | EventMask::KeyRelease
                 | EventMask::ButtonPress
                 | EventMask::ButtonRelease,
         );
@@ -335,6 +375,7 @@ impl<'a, C: Connection + ConnectionExt + randr::ConnectionExt> WindowManager<'a,
             .find(|state| state.window == win || state.frame_window == win)
     }
 
+    #[allow(dead_code)]
     fn find_window_by_event(&mut self, event: Event) -> Option<&Box<ManagedWindow>> {
         let w = match event {
             Event::ButtonPress(e) => Some(e.event),
@@ -411,10 +452,8 @@ impl<'a, C: Connection + ConnectionExt + randr::ConnectionExt> WindowManager<'a,
     }
 
     fn handle_map_request(&mut self, event: MapRequestEvent) -> Result<(), ReplyOrIdError> {
-        self.manage_window(
-            event.window,
-            &self.conn.get_geometry(event.window)?.reply()?,
-        )
+            let geo = &self.conn.get_geometry(event.window)?.reply()?;
+        self.manage_window( event.window, geo)
     }
 
     fn handle_expose(&mut self, event: ExposeEvent) -> Result<(), ReplyError> {
@@ -463,7 +502,10 @@ impl<'a, C: Connection + ConnectionExt + randr::ConnectionExt> WindowManager<'a,
     }
 }
 
-impl<'a, C: Connection + ConnectionExt> Drop for WindowManager<'a, C> {
+impl<T> Drop for WindowManager<T>
+where
+    T: Connection,
+{
     fn drop(&mut self) {
         for it in self.windows.iter() {
             self.conn
